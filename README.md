@@ -2,7 +2,16 @@
 
 ASP.NET Core (.NET 10) Web API on PostgreSQL.
 
-> Feature documentation will be added once requirements are implemented.
+Backend for facilities maintenance requests: multi-tenant organisations, sites, permission-based roles, threshold-based approval with re-approval on changes, a spend report, and an immutable audit trail.
+
+| Doc | What's in it |
+|---|---|
+| [PLAN.md](PLAN.md) | Agreed design: data model, permissions, approval rules, transition table, API, tests |
+| [DECISIONS.md](DECISIONS.md) | Technical choices, what was rejected, trade-offs, assumptions |
+| [AI-LOG.md](AI-LOG.md) | How the AI agent was used and steered |
+| [CLAUDE.md](CLAUDE.md) | Agent configuration and rules |
+
+> Implementation in progress. Run instructions below cover the current state.
 
 ## Prerequisites
 
