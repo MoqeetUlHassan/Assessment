@@ -5,7 +5,7 @@ namespace Assessment.Api.Domain;
 /// and a database trigger rejects UPDATE/DELETE/TRUNCATE on the table.
 /// One event = one action; FromStatus/ToStatus are set only when the action changed the request's status.
 /// </summary>
-public class AuditEvent
+public class AuditEvent : ITenantOwned
 {
     public long Id { get; private set; }
     public Guid OrganizationId { get; private init; }

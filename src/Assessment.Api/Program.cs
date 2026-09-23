@@ -11,12 +11,16 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TenantContext>();
 builder.Services.AddScoped<AuditEventInterceptor>();
+builder.Services.AddScoped<TenantGuardInterceptor>();
 builder.Services.AddScoped<EntityStampingInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
     .UseNpgsql(connectionString)
     .UseSnakeCaseNamingConvention()
-    // Audit collection first, so the audit rows it adds are part of the same save.
-    .AddInterceptors(sp.GetRequiredService<AuditEventInterceptor>(), sp.GetRequiredService<EntityStampingInterceptor>()));
+    // Order matters: collect audit rows first so the tenant guard checks them too; stamp last.
+    .AddInterceptors(
+        sp.GetRequiredService<AuditEventInterceptor>(),
+        sp.GetRequiredService<TenantGuardInterceptor>(),
+        sp.GetRequiredService<EntityStampingInterceptor>()));
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database");
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
