@@ -107,6 +107,15 @@ async function session(browser, email) {
     await globex.page.waitForSelector('#requests tbody');
     check('cross-tenant: Acme request absent from Globex list', !(await globex.page.textContent('#requests')).includes('Fix chiller'));
 
+    // Spend report: visible to approvers (reports.spend), not to requesters.
+    await approver.page.click('header a:has-text("Spend report")');
+    await approver.page.waitForSelector('#report tfoot');
+    const reportText = await approver.page.textContent('#report');
+    check('report: approver sees per-site table with a total row',
+      reportText.includes('Site 12') && reportText.includes('Downtown Store') && reportText.includes('Total'));
+    check('report: requester has no Spend report link',
+      (await requester.page.locator('header a', { hasText: 'Spend report' }).count()) === 0);
+
     // Admin panel: hidden from non-admins, refused if opened directly.
     check('admin: requester has no Admin link', (await requester.page.locator('header a', { hasText: 'Admin' }).count()) === 0);
     await requester.page.goto(BASE + '/admin.html');
