@@ -111,7 +111,9 @@
     return el('section', {},
       el('h2', { text: 'Revisions' }),
       el('div', { class: 'scroll' }, el('table', {},
-        el('thead', {}, el('tr', {}, ['#', 'Kind', 'Amount', 'Description', 'Submitted by', 'Outcome', 'Decided by', 'Decided', 'Comment']
+        // Reason = why the submitter asked for this change (edit reason / actual-cost note).
+        // Decision note = the approver's comment, or the rejection reason.
+        el('thead', {}, el('tr', {}, ['#', 'Kind', 'Amount', 'Description', 'Submitted by', 'Reason', 'Outcome', 'Decided by', 'Decided', 'Decision note']
           .map(h => el('th', { text: h })))),
         el('tbody', {}, revisions.map(v => el('tr', {},
           el('td', { text: String(v.sequence) }),
@@ -119,10 +121,11 @@
           el('td', { class: 'num', text: money(v.amount) }),
           el('td', { text: v.description }),
           el('td', { text: v.submittedByName }),
+          el('td', { text: v.reason || '—' }),
           el('td', { class: 'status', text: humanize(v.outcome) }),
           el('td', { text: v.decidedByName || '—' }),
           el('td', { text: when(v.decidedAt) }),
-          el('td', { text: v.decisionComment || '' }))))))
+          el('td', { text: v.decisionComment || '—' }))))))
     );
   }
 
