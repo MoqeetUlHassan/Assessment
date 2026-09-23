@@ -25,7 +25,7 @@ public class EncryptedLoginTests(ApiFactory factory) : IClassFixture<ApiFactory>
     {
         var t = await TestTenant.CreateAsync(factory);
         var client = factory.CreateClient();
-        var captured = await LoginPayload.CreateAsync(client, t.Approver.Email, TestTenant.Password);
+        var captured = await PasswordPayload.CreateAsync(client, t.Approver.Email, TestTenant.Password);
 
         var first = await client.PostAsJsonAsync("/api/auth/login", captured);
         var replay = await factory.CreateClient().PostAsJsonAsync("/api/auth/login", captured);
@@ -42,14 +42,14 @@ public class EncryptedLoginTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         using var attackerKey = RSA.Create(3072);
         var foreignPublicKey = Convert.ToBase64String(attackerKey.ExportSubjectPublicKeyInfo());
-        var c1 = await LoginPayload.GetChallengeAsync(client);
-        var wrongKey = new { email = t.Approver.Email, keyId = c1.KeyId, encryptedPassword = LoginPayload.Encrypt(c1, TestTenant.Password, foreignPublicKey) };
+        var c1 = await PasswordPayload.GetChallengeAsync(client);
+        var wrongKey = new { email = t.Approver.Email, keyId = c1.KeyId, encryptedPassword = PasswordPayload.Encrypt(c1, TestTenant.Password, foreignPublicKey) };
 
-        var c2 = await LoginPayload.GetChallengeAsync(client);
-        var wrongKeyId = new { email = t.Approver.Email, keyId = "0000000000000000", encryptedPassword = LoginPayload.Encrypt(c2, TestTenant.Password) };
+        var c2 = await PasswordPayload.GetChallengeAsync(client);
+        var wrongKeyId = new { email = t.Approver.Email, keyId = "0000000000000000", encryptedPassword = PasswordPayload.Encrypt(c2, TestTenant.Password) };
 
-        var c3 = await LoginPayload.GetChallengeAsync(client);
-        var bytes = Convert.FromBase64String(LoginPayload.Encrypt(c3, TestTenant.Password));
+        var c3 = await PasswordPayload.GetChallengeAsync(client);
+        var bytes = Convert.FromBase64String(PasswordPayload.Encrypt(c3, TestTenant.Password));
         bytes[^1] ^= 0x01;
         var tampered = new { email = t.Approver.Email, keyId = c3.KeyId, encryptedPassword = Convert.ToBase64String(bytes) };
 
@@ -61,8 +61,8 @@ public class EncryptedLoginTests(ApiFactory factory) : IClassFixture<ApiFactory>
     public async Task Each_challenge_has_a_fresh_nonce_under_the_same_key()
     {
         var client = factory.CreateClient();
-        var a = await LoginPayload.GetChallengeAsync(client);
-        var b = await LoginPayload.GetChallengeAsync(client);
+        var a = await PasswordPayload.GetChallengeAsync(client);
+        var b = await PasswordPayload.GetChallengeAsync(client);
 
         Assert.Equal(a.KeyId, b.KeyId);
         Assert.NotEqual(a.Nonce, b.Nonce);

@@ -16,6 +16,22 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         "GET /api/admin/permissions", "PUT /api/admin/settings/threshold", "GET /api/admin/audit",
     ];
 
+    /// <summary>Password fields are sent encrypted, exactly as the admin page does.</summary>
+    private static async Task<object> NewUserAsync(HttpClient admin, string displayName, string email, string password, Guid roleId,
+        Guid? organizationId = null)
+    {
+        var (keyId, encryptedPassword) = await PasswordPayload.EncryptAsync(admin, password);
+        return organizationId is null
+            ? new { displayName, email, keyId, encryptedPassword, roleId }
+            : new { displayName, email, keyId, encryptedPassword, roleId, organizationId };
+    }
+
+    private static async Task<object> PasswordAsync(HttpClient admin, string password)
+    {
+        var (keyId, encryptedPassword) = await PasswordPayload.EncryptAsync(admin, password);
+        return new { keyId, encryptedPassword };
+    }
+
     [Fact]
     public async Task Non_admins_get_403_on_every_admin_endpoint()
     {
@@ -41,11 +57,8 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var email = $"new-{Guid.NewGuid():N}@test.local";
 
         // An organizationId in the body is not part of the contract and must be ignored.
-        var created = await admin.PostAsJsonAsync("/api/admin/users", new
-        {
-            displayName = "Nina New", email, password = "Nina-Password-123", roleId = t.ApproverRole.Id,
-            organizationId = other.Org.Id,
-        });
+        var created = await admin.PostAsJsonAsync("/api/admin/users",
+            await NewUserAsync(admin, "Nina New", email, "Nina-Password-123", t.ApproverRole.Id, organizationId: other.Org.Id));
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
         var login = await factory.CreateClient().LoginAsync(email, "Nina-Password-123");
@@ -61,8 +74,8 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var other = await TestTenant.CreateAsync(factory);
         var admin = await factory.SignedInClientAsync(t.Admin);
 
-        var create = await admin.PostAsJsonAsync("/api/admin/users", new
-            { displayName = "X", email = $"x-{Guid.NewGuid():N}@test.local", password = "Long-Enough-123", roleId = other.ApproverRole.Id });
+        var create = await admin.PostAsJsonAsync("/api/admin/users",
+            await NewUserAsync(admin, "X", $"x-{Guid.NewGuid():N}@test.local", "Long-Enough-123", other.ApproverRole.Id));
         var change = await admin.PutAsJsonAsync($"/api/admin/users/{t.Requester.Id}/role", new { roleId = other.ApproverRole.Id });
 
         Assert.Equal(HttpStatusCode.BadRequest, create.StatusCode);
@@ -80,7 +93,7 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var attempts = new Dictionary<string, HttpResponseMessage>
         {
             ["deactivate"] = await admin.PostAsync($"/api/admin/users/{victimUser}/deactivate", null),
-            ["password"] = await admin.PostAsJsonAsync($"/api/admin/users/{victimUser}/password", new { password = "Taken-Over-12345" }),
+            ["password"] = await admin.PostAsJsonAsync($"/api/admin/users/{victimUser}/password", await PasswordAsync(admin, "Taken-Over-12345")),
             ["role"] = await admin.PutAsJsonAsync($"/api/admin/users/{victimUser}/role", new { roleId = attacker.ApproverRole.Id }),
             ["permissions"] = await admin.PutAsJsonAsync($"/api/admin/roles/{victim.ApproverRole.Id}/permissions", new { permissions = new[] { "requests.create" } }),
         };
@@ -131,8 +144,8 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var other = await TestTenant.CreateAsync(factory);
         var admin = await factory.SignedInClientAsync(t.Admin);
 
-        var response = await admin.PostAsJsonAsync("/api/admin/users", new
-            { displayName = "Dup", email = other.Requester.Email.ToUpperInvariant(), password = "Long-Enough-123", roleId = t.ApproverRole.Id });
+        var response = await admin.PostAsJsonAsync("/api/admin/users",
+            await NewUserAsync(admin, "Dup", other.Requester.Email.ToUpperInvariant(), "Long-Enough-123", t.ApproverRole.Id));
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
     }
@@ -164,10 +177,10 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var admin = await factory.SignedInClientAsync(t.Admin);
 
         await admin.PutAsJsonAsync("/api/admin/settings/threshold", new { amount = 12_000m, reason = "Raise" });
-        var created = await (await admin.PostAsJsonAsync("/api/admin/users", new
-            { displayName = "Sam Sock", email = $"sam-{Guid.NewGuid():N}@test.local", password = "Sam-Password-123", roleId = t.ApproverRole.Id })).JsonAsync();
+        var created = await (await admin.PostAsJsonAsync("/api/admin/users",
+            await NewUserAsync(admin, "Sam Sock", $"sam-{Guid.NewGuid():N}@test.local", "Sam-Password-123", t.ApproverRole.Id))).JsonAsync();
         await admin.PostAsync($"/api/admin/users/{created.Id()}/deactivate", null);
-        await admin.PostAsJsonAsync($"/api/admin/users/{t.Requester.Id}/password", new { password = "Reset-Password-123" });
+        await admin.PostAsJsonAsync($"/api/admin/users/{t.Requester.Id}/password", await PasswordAsync(admin, "Reset-Password-123"));
         await admin.PutAsJsonAsync($"/api/admin/roles/{t.ApproverRole.Id}/permissions", new { permissions = new[] { "requests.create", "requests.approve" } });
 
         var log = await admin.GetFromJsonAsync<JsonElement>("/api/admin/audit");
@@ -183,5 +196,37 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var users = await admin.GetFromJsonAsync<JsonElement>("/api/admin/users");
         var sam = users.EnumerateArray().Single(u => u.GetProperty("id").GetGuid() == created.Id());
         Assert.Equal("Ada Admin", sam.GetProperty("createdByName").GetString());
+    }
+
+    [Fact]
+    public async Task Admin_password_fields_must_be_encrypted_and_are_single_use()
+    {
+        var t = await TestTenant.CreateAsync(factory);
+        var admin = await factory.SignedInClientAsync(t.Admin);
+
+        var plainCreate = await admin.PostAsJsonAsync("/api/admin/users", new
+            { displayName = "Plain", email = $"plain-{Guid.NewGuid():N}@test.local", password = "Plain-Password-123", roleId = t.ApproverRole.Id });
+        var plainReset = await admin.PostAsJsonAsync($"/api/admin/users/{t.Requester.Id}/password", new { password = "Plain-Password-123" });
+        Assert.Equal(HttpStatusCode.BadRequest, plainCreate.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, plainReset.StatusCode);
+
+        var captured = await PasswordAsync(admin, "Captured-Password-123");
+        Assert.Equal(HttpStatusCode.OK, (await admin.PostAsJsonAsync($"/api/admin/users/{t.Requester.Id}/password", captured)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.PostAsJsonAsync($"/api/admin/users/{t.Approver.Id}/password", captured)).StatusCode);
+
+        // The reset really set the decrypted password.
+        await factory.SignedInClientAsync(t.Requester, "Captured-Password-123");
+    }
+
+    [Fact]
+    public async Task Password_policy_is_enforced_after_decryption()
+    {
+        var t = await TestTenant.CreateAsync(factory);
+        var admin = await factory.SignedInClientAsync(t.Admin);
+
+        var response = await admin.PostAsJsonAsync($"/api/admin/users/{t.Requester.Id}/password", await PasswordAsync(admin, "short"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        await factory.SignedInClientAsync(t.Requester); // old password still works
     }
 }

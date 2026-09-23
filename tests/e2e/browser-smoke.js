@@ -7,9 +7,11 @@ const PASSWORD = 'ChangeMe-Dev-2026!';
 const XSS = '<img src=x onerror="window.__xss=1">Fix chiller';
 
 const results = [];
-const loginBodies = []; // every POST /api/auth/login body the browser actually sent
+const passwordBodies = []; // every request body the browser sent that carries a password field
 const watchLogins = page => page.on('request', r => {
-  if (r.method() === 'POST' && r.url().endsWith('/api/auth/login')) loginBodies.push(r.postData() || '');
+  const url = r.url();
+  if (r.method() === 'POST' && (url.endsWith('/api/auth/login') || url.endsWith('/api/admin/users') || url.endsWith('/password')))
+    passwordBodies.push(r.postData() || '');
 });
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`); };
 
@@ -176,10 +178,10 @@ async function session(browser, email) {
     await requester.page.waitForURL('**/index.html');
     check('logout: protected page redirects to sign-in', requester.page.url().endsWith('/index.html'));
 
-    check('login payloads carry only the encrypted password',
-      loginBodies.length >= 5 && loginBodies.every(b => b.includes('encryptedPassword') && !b.includes('"password"')
+    check('password payloads (logins + admin create user) carry only the encrypted password',
+      passwordBodies.length >= 6 && passwordBodies.every(b => b.includes('encryptedPassword') && !b.includes('"password"')
         && !b.includes(PASSWORD) && !b.includes('Smoke-Test-Password-1') && !b.includes('wrong"')),
-      `${loginBodies.length} login request(s) inspected`);
+      `${passwordBodies.length} request(s) inspected`);
 
     const allProblems = [...requester.problems, ...approver.problems, ...globex.problems, ...admin.problems]
       .filter(p => !p.includes('status of 4')); // expected 4xx responses logged by the browser
