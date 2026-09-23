@@ -10,7 +10,7 @@ Status legend: ✅ built · 🔜 planned (step number from [PLAN.md](PLAN.md) §
 
 ```mermaid
 flowchart LR
-    subgraph Client["Browser (static HTML + vanilla JS) 🔜 step 8"]
+    subgraph Client["Browser (static HTML + vanilla JS) ✅"]
         UI[Login · Requests · Approve/Reject · Admin panel]
     end
 
@@ -71,7 +71,7 @@ src/Assessment.Api/
 │   ├── Sites/       ✅ list
 │   ├── Admin/       🔜 users · roles · threshold
 │   └── Reports/     🔜 spend by site
-└── wwwroot/                          🔜 step 8   static client
+└── wwwroot/                          ✅ static client (login, list, create, detail + decide/edit/complete, audit) · 🔜 admin panel, report
 
 tests/Assessment.Api.Tests/
 ├── Domain/          ✅ transition table (every state × action), approval rules, revisions, audit, roles

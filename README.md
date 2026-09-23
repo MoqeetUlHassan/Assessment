@@ -34,6 +34,8 @@ docker compose up -d db
 dotnet run --project src/Assessment.Api --launch-profile http
 ```
 
+Then open **http://localhost:5183** and sign in with a seeded account (below). The minimal UI covers login, the request list (filter and paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail. The admin panel and spend report arrive with those features.
+
 Check it's up:
 
 ```bash
@@ -138,6 +140,15 @@ dotnet test
 ```
 
 To point the tests at a different server, set `TEST_CONNECTION_STRING`.
+
+### Browser smoke test (optional)
+
+`tests/e2e/browser-smoke.js` drives the UI in a real headless browser against a **running** app. It covers login, raising a request with an HTML-injection description, approve/reject, completion, the audit trail, a cross-tenant 404, logout, and no JS or CSP errors. It uses an installed Edge (or Chrome with `BROWSER_CHANNEL=chrome`) and isn't part of `dotnet test`.
+
+```bash
+dotnet run --project src/Assessment.Api --launch-profile http   # in one terminal
+cd tests/e2e && npm install && node browser-smoke.js            # in another
+```
 
 ## Database migrations
 
