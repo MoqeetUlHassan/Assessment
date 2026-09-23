@@ -60,7 +60,7 @@ Sites: Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower
 
 ### Try the API with curl
 
-The login endpoint accepts only an **encrypted password field**, never a plain one (see DECISIONS.md). A plain curl call therefore can't log in; `scripts/login.mjs` (Node 18+) does what the browser does and saves the session cookie to a curl cookie jar:
+Every password field (login, and the admin create-user and reset-password forms) is accepted **only encrypted**, never plain (see DECISIONS.md). A plain curl call therefore can't log in; `scripts/login.mjs` (Node 18+) does what the browser does and saves the session cookie to a curl cookie jar:
 
 ```bash
 node scripts/login.mjs approver1@acme.test 'ChangeMe-Dev-2026!' jar.txt   # challenge → encrypt → login → jar.txt
@@ -89,7 +89,7 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 
 | Method | Route | Needs | Notes |
 |---|---|---|---|
-| GET | `/api/auth/login-challenge` | — | `{ keyId, publicKey, nonce }` for encrypting the password (rate-limited) |
+| GET | `/api/auth/password-challenge` | — | `{ keyId, publicKey, nonce }` for encrypting a password field (rate-limited) |
 | POST | `/api/auth/login` · `/api/auth/logout` | — | login body `{ email, keyId, encryptedPassword }`; rate-limited per IP |
 | GET | `/api/me` | session | user, role, permissions, org, threshold |
 | GET | `/api/sites` | session | your org's sites |
@@ -102,10 +102,10 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 | POST | `/api/requests/{id}/reject` | `requests.approve`, not your request/revision | `{ revisionId, reason }` |
 | GET | `/api/requests/{id}/history` | session | revisions + audit events with actor names |
 | GET | `/api/reports/spend?from=yyyy-MM-dd&to=yyyy-MM-dd` | `reports.spend` | spend per site, caller's org only; inclusive UTC dates, ≤ 366 days |
-| GET / POST | `/api/admin/users` | `admin.users` | list / create `{ displayName, email, password, roleId }` |
+| GET / POST | `/api/admin/users` | `admin.users` | list / create `{ displayName, email, keyId, encryptedPassword, roleId }` |
 | PUT | `/api/admin/users/{id}/role` | `admin.users` | `{ roleId }`; not yourself |
 | POST | `/api/admin/users/{id}/deactivate` · `/reactivate` | `admin.users` | not yourself; ends their sessions |
-| POST | `/api/admin/users/{id}/password` | `admin.users` | `{ password }` (≥ 12); ends their sessions |
+| POST | `/api/admin/users/{id}/password` | `admin.users` | `{ keyId, encryptedPassword }` (≥ 12 after decryption); ends their sessions |
 | GET / POST | `/api/admin/roles` | `admin.roles` | list / create `{ name, permissions[] }` |
 | PUT | `/api/admin/roles/{id}/permissions` | `admin.roles` | `admin.*` can't be granted; OrgAdmin role locked |
 | GET | `/api/admin/permissions` | `admin.roles` | the permission catalog |
