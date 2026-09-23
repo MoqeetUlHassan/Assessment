@@ -1,6 +1,6 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **v3, second review round applied.** Decisions are in §10. Nothing is built yet.
+Status: **v3.1, threshold-snapshot and user-stamp feedback applied.** Decisions are in §10. Nothing is built yet.
 
 ---
 
@@ -60,7 +60,7 @@ Endpoints are thin: bind → validate → authorize → domain method → save. 
 
 ## 3. Data model
 
-Shared schema, with `organization_id` on every tenant-owned row. IDs are `Guid.CreateVersion7()`. **Every table has `created_at` and `updated_at`** (`timestamptz`, UTC), set by a SaveChanges interceptor from an injected `TimeProvider`. The one exception is `audit_events`: it has `created_at` only, because its rows can never change (§8).
+Shared schema, with `organization_id` on every tenant-owned row. IDs are `Guid.CreateVersion7()`. **Every table has timestamps and user stamps:** `created_at`, `updated_at` (`timestamptz`, UTC) and `created_by_id`, `updated_by_id` (NULL = system/seed). A SaveChanges interceptor sets all four from an injected `TimeProvider` and the logged-in user in `TenantContext`, so no feature can forget them. The one exception is `audit_events`: it has `created_at` + `actor_user_id` only, because its rows can never change (§8).
 
 ```
 organizations      id, name, approval_threshold numeric(12,2) NOT NULL DEFAULT 10000 CHECK >= 0
@@ -75,12 +75,13 @@ role_permissions   role_id, organization_id, permission text          -- permiss
                    PK (role_id, permission), FK (role_id, organization_id) → roles
 
 users              id, organization_id, role_id, email (UNIQUE on lower(email)), display_name,
-                   password_hash, is_active, created_by_id NULL
+                   password_hash, is_active
                    FK (role_id, organization_id) → roles(id, organization_id)
                    UNIQUE (id, organization_id)
 
 maintenance_requests
                    id, organization_id, site_id, requested_by_id,
+                   approval_threshold numeric(12,2)     -- org threshold snapshotted at creation; governs every revision of this request
                    status (Raised|PendingApproval|Approved|Rejected|Completed),
                    description, estimated_cost          -- current content (may be awaiting approval)
                    approved_revision_id NULL            -- last approved content; the fallback on rejection
@@ -92,7 +93,7 @@ maintenance_requests
 request_revisions  -- an immutable snapshot of every change to what is being paid for
                    id, organization_id, request_id,
                    kind (Initial|Edit|ActualCost), description, amount,
-                   previous_revision_id NULL, reason NULL, submitted_by_id, threshold_at_submission,
+                   previous_revision_id NULL, reason NULL, submitted_by_id,
                    outcome (Pending|AutoApproved|Approved|Rejected|Superseded),
                    decided_by_id NULL, decided_at NULL, decision_comment NULL
                    FK (request_id, organization_id), FK (submitted_by_id, organization_id),
@@ -172,21 +173,18 @@ The one allowed `IgnoreQueryFilters()` is login's email lookup, and a test enfor
 - Passwords must be at least 12 characters. They're hashed and never returned or logged.
 - Emails are globally unique, so login doesn't need an org code. *Trade-off:* an admin adding an email that already exists in another org learns that the email is in use somewhere. I accept this as low severity; the alternative is making every user type an org code at login.
 
-**⚠ Accepted risk (from decision 1: OrgAdmin has all permissions).** An OrgAdmin could:
-- **raise the threshold**, then raise a large request of their own that gets auto-approved; or
-- **create a second account** and use it to approve their own request.
+**OrgAdmin power: how it's contained (decision 11).**
+- **No one approves their own request.** `CanDecideRevision` applies to every user, the OrgAdmin included. Holding `requests.approve` never covers your own request or a revision you submitted.
+- **A threshold change applies only to requests created after it.** Each request snapshots the threshold at creation, and all its edits and its actual cost are judged against that snapshot. Raising the threshold can't turn an existing pending request, or an overrun on an existing job, into an auto-approval. Lowering it doesn't retroactively add approval steps either.
+- **Everything is user-stamped.** The threshold change, the request's creation, every update and every approval record *who* and *when*, both in the audit trail and in each row's `created_by_id` / `updated_by_id`. Every user row also records which admin created that account.
 
-The self-approval check can't catch the second case, because the approval really does come from a different account. For this build the controls are **detective, not preventive**:
-- every threshold change, user creation, role change and permission change is audited with actor, before and after;
-- each account records its `created_by_id`, so a sock-puppet approver is traceable to the admin who created it.
-
-**In production** I'd add four-eyes for admin actions (a second OrgAdmin must confirm a threshold increase or a new approver), or take `requests.approve` away from the admin role. This goes in DECISIONS.md as a deliberate trade-off.
+**Residual risk, accepted.** An OrgAdmin can still (a) raise the threshold and *then* create a request that's auto-approved under the new value, or (b) create a second account that approves their requests. Neither is hidden: the audit shows "X raised the threshold at T1, X raised a request at T2, auto-approved", and the approving account carries `created_by_id = X`. The control is **transparency, not prevention**, and that's a product decision. *Production option, noted in DECISIONS.md:* four-eyes confirmation by a second OrgAdmin for threshold increases and new approver accounts.
 
 ---
 
 ## 6. Request lifecycle and approval rules
 
-**Every change is a revision.** Creating a request, editing its description or estimate, and entering the actual cost each produce a `request_revisions` row. Each row is checked against the org's **current** threshold, which is also saved on the row.
+**Every change is a revision.** Creating a request, editing its description or estimate, and entering the actual cost each produce a `request_revisions` row. Each revision is checked against the **request's own threshold**: the org threshold snapshotted when the request was created. Later threshold changes affect only requests created after them.
 
 **Two approval rules:**
 
@@ -330,7 +328,8 @@ Tests run against real Postgres, and each test creates its own orgs.
 | **Every tenant entity has a query filter; `IgnoreQueryFilters` only in login** | Guards the next entity or query someone adds. |
 | **Spend report** against a hand-computed fixture: date boundaries, non-completed excluded, zero-spend sites included, other org excluded | "Right numbers" is graded. |
 | **Audit**: auto and manual approvals, supersede, and admin actions each write the expected event and actor; raw-SQL UPDATE/DELETE on `audit_events` fails | Compliance claims, proven at the DB level. |
-| **Timestamps**: `created_at` set once; `updated_at` moves on change | Explicit requirement. |
+| **Threshold snapshot**: raise the threshold, then (a) an existing request's edit/actual is still judged by its old threshold, and (b) a new request uses the new one | Decision 11. It's what stops a threshold change from rewriting pending requests. |
+| **Timestamps + user stamps**: `created_at`/`created_by_id` set once; `updated_at`/`updated_by_id` move on change and name the acting user | Explicit requirement. |
 
 **Not tested, deliberately:** framework behaviour, per-field validation attributes, the static client, logging.
 
@@ -342,7 +341,7 @@ Tests run against real Postgres, and each test creates its own orgs.
 |---|---|---|
 | 1 | Roles | **One role per user; roles carry permissions; checks use permissions.** OrgAdmin has all permissions, including raising and approving (never their own), and manages users and roles from an admin panel. |
 | 2 | Visibility | Everyone sees all requests in their org. |
-| 3 | Threshold | Default 10,000. OrgAdmin changes it through the API in either direction; audited and snapshotted per revision. |
+| 3 | Threshold | Default 10,000. OrgAdmin changes it through the API in either direction; audited. |
 | 4 | Equal to threshold | Needs approval. |
 | 5 | Edits while pending | Allowed. They supersede the pending revision and need re-approval (if at/above the threshold). |
 | 6 | Rejection | A rejected edit keeps the last approved content; a rejected actual goes back to Approved; a rejected initial request is terminal. |
@@ -350,12 +349,14 @@ Tests run against real Postgres, and each test creates its own orgs.
 | 8 | Approvals needed | Any one eligible Approver. |
 | 9 | Self-approval | A permission-layer rule (resource-based handler), and it applies to OrgAdmin too. |
 | 10 | Frontend / report | Plain HTML + JS; spend report needs `reports.spend`. |
+| 11 | Threshold scope | **A new threshold applies only to requests created after the change.** Each request snapshots it at creation. |
+| 12 | User stamps | `created_by_id` / `updated_by_id` on every table, plus the actor on every audit event. The remaining OrgAdmin risk is handled by transparency (§5). |
 
-**Assumptions I made (please object if wrong):**
+**Assumptions (accepted in review, no objections raised):**
 1. **`admin.*` permissions are locked to the OrgAdmin role.** Other roles can be created or edited, but never with admin permissions.
 2. **Requesters edit and complete only their own requests;** `requests.manage` holders can do it for any request.
 3. **Under the threshold, a description-only edit is auto-approved** (just recorded). At or above it, any description change needs re-approval.
-4. **An OrgAdmin can't approve their own request.** The OrgAdmin risks in §5 are accepted and mitigated through the audit trail.
+4. **An OrgAdmin can't approve their own request.** Now confirmed as decision 11.
 5. **Orgs and sites are seeded, with no API.** Each seeded org has an OrgAdmin.
 
 ---
@@ -363,7 +364,7 @@ Tests run against real Postgres, and each test creates its own orgs.
 ## 11. Execution order (commit + push per step)
 
 1. **Domain:** entities, the permission catalog, the approval rules, the transition table, plus unit tests. *I review the transition table by hand before tests are generated from it.*
-2. **Schema:** configs, timestamp interceptor, migration, composite FKs, CHECKs, indexes, audit trigger. *Migration SQL reviewed line by line.*
+2. **Schema:** configs, timestamp + user-stamp interceptor, migration, composite FKs, CHECKs, indexes, audit trigger. *Migration SQL reviewed line by line.*
 3. **Tenancy:** TenantContext, query filters, SaveChanges guard, plus meta-tests.
 4. **Auth and permissions:** login, `/me`, per-request permission loading, policies, `CanDecideRevision` / `CanModifyRequest`, dev seed (2 orgs × sites × OrgAdmin / Approver ×2 / Requester).
 5. **Request endpoints**, plus HTTP authz and cross-tenant tests.
