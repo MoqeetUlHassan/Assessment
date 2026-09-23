@@ -90,6 +90,24 @@ if (app.Configuration.GetValue<bool>("Seed:DevelopmentData"))
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+// Security headers on every response. The CSP allows only same-origin scripts/styles (no inline script),
+// so even if user text were ever rendered as HTML by mistake, injected script would not execute.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers.ContentSecurityPolicy =
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; " +
+        "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+    headers.XContentTypeOptions = "nosniff";
+    headers["Referrer-Policy"] = "no-referrer";
+    headers.XFrameOptions = "DENY";
+    await next();
+});
+
+// Static client (wwwroot): public files only; all data goes through the authenticated API.
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<SessionValidationMiddleware>(); // tenant + fresh user/permissions, before any authorization

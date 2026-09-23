@@ -1,0 +1,27 @@
+/* Deliberately minimal: functional, readable, no design system. */
+body { font-family: system-ui, sans-serif; margin: 0; color: #1a1a1a; background: #fff; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid #ccc; background: #f6f6f6; }
+header .spacer { flex: 1; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; } h2 { font-size: 1.15rem; margin-top: 28px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+th, td { border: 1px solid #ddd; padding: 6px 8px; text-align: left; vertical-align: top; }
+th { background: #f0f0f0; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+form.stack { display: grid; gap: 8px; max-width: 520px; }
+.inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+label { display: grid; gap: 3px; font-size: 0.9rem; }
+input, select, textarea, button { font: inherit; padding: 5px 8px; }
+textarea { min-height: 70px; }
+button { cursor: pointer; }
+.box { border: 1px solid #ccc; padding: 12px; margin: 12px 0; }
+.pending { border-color: #b8860b; background: #fffbea; }
+.error { color: #a00000; white-space: pre-wrap; }
+.ok { color: #006400; }
+.muted { color: #666; font-size: 0.88rem; }
+.status { font-weight: 600; }
+dl.grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+dl.grid dt { color: #555; }
+dl.grid dd { margin: 0; }
+.pager { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+.scroll { overflow-x: auto; }
