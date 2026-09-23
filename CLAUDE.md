@@ -12,6 +12,18 @@ Guidance for AI coding agents working in this repo.
 - Run: `dotnet run --project src/Assessment.Api --launch-profile http`
 - Migration: `dotnet tool restore && dotnet ef migrations add <Name> --project src/Assessment.Api`
 
+## Design source of truth
+`PLAN.md` holds the agreed design (permissions, approval rules, transition table, data model). `DECISIONS.md` holds the rationale. If code and plan disagree, stop and ask. Don't silently pick one.
+
+## Domain & security rules
+- **Tenancy:** the org ID comes only from `TenantContext` (the authenticated user), never from a route, query or body. Every tenant entity must have a global query filter. `IgnoreQueryFilters()` is allowed **only** in the login email lookup.
+- **Authorization:** check **permissions** (`requests.approve`, ...), never role names. Rules that need the record (self-approval, own-request) go in resource-based handlers in `Authorization/`, not in endpoints or entities.
+- **Nobody approves their own request or a revision they submitted.** This includes OrgAdmin. There are no exceptions.
+- **Approval rules** use the **request's snapshotted threshold**, never the org's current one.
+- **Every state change, decision and admin action writes an `AuditEvent` in the same `SaveChanges`.** Never update or delete audit rows.
+- **Timestamps and user stamps** come from the interceptor. Never set `CreatedAt/UpdatedAt/CreatedById/UpdatedById` by hand.
+- **Illegal transitions** return 409 via the domain's transition table. Don't add ad-hoc status checks in endpoints.
+
 ## Rules
 - **Never use the EF InMemory provider or SQLite in tests.** Tests run against real Postgres via `ApiFactory`.
 - **A new test must be seen failing** (break the code or the input) before you report it as passing.
