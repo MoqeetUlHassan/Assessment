@@ -1,5 +1,6 @@
 // Browser smoke test of the static client against a RUNNING app (dotnet run), using an installed Edge or Chrome.
 // Run: cd tests/e2e && npm install && node browser-smoke.js   (BROWSER_CHANNEL=chrome to use Chrome)
+// Signs in ~8 times; the login rate limit is 10/min per IP, so allow a minute between runs.
 const { chromium } = require('playwright-core');
 const BASE = process.env.BASE_URL || 'http://localhost:5183';
 const PASSWORD = 'ChangeMe-Dev-2026!';
@@ -18,7 +19,13 @@ async function session(browser, email) {
   await page.fill('input[name=email]', email);
   await page.fill('input[name=password]', PASSWORD);
   await page.click('button[type=submit]');
-  await page.waitForURL('**/requests.html');
+  await Promise.race([
+    page.waitForURL('**/requests.html'),
+    page.waitForSelector('#message p.error').then(async () => {
+      throw new Error(`Login as ${email} failed: ${await page.textContent('#message')}` +
+        ' (429 = the per-IP login rate limit of 10/min; wait a minute between runs)');
+    }),
+  ]);
   return { page, problems };
 }
 
@@ -43,6 +50,7 @@ async function session(browser, email) {
     await requester.page.waitForSelector('header strong');
     const header = await requester.page.textContent('header');
     check('header shows org, threshold, user', header.includes('Acme Retail') && header.includes('Riley Requester'), header.replace(/\s+/g, ' ').trim());
+    check('header renders no stray "null"', !header.includes('null'));
 
     // Create an over-threshold request whose description is an HTML/script injection attempt.
     await requester.page.selectOption('#create select[name=siteId]', { label: 'Site 12' });
@@ -99,6 +107,53 @@ async function session(browser, email) {
     await globex.page.waitForSelector('#requests tbody');
     check('cross-tenant: Acme request absent from Globex list', !(await globex.page.textContent('#requests')).includes('Fix chiller'));
 
+    // Admin panel: hidden from non-admins, refused if opened directly.
+    check('admin: requester has no Admin link', (await requester.page.locator('header a', { hasText: 'Admin' }).count()) === 0);
+    await requester.page.goto(BASE + '/admin.html');
+    await requester.page.waitForSelector('#message p.error');
+    check('admin: requester opening admin.html sees no admin sections',
+      (await requester.page.locator('#users-section:not([hidden])').count()) === 0);
+
+    const admin = await session(browser, 'admin@acme.test');
+    await admin.page.click('header a:has-text("Admin")');
+    await admin.page.waitForSelector('#users tbody tr');
+    const originalThreshold = await admin.page.textContent('#threshold-current');
+    await admin.page.fill('#threshold input[name=amount]', '12345');
+    await admin.page.fill('#threshold input[name=reason]', 'Browser smoke test');
+    await admin.page.click('#threshold button[type=submit]');
+    await admin.page.waitForSelector('#message p.ok');
+    check('admin: threshold change shows in header', (await admin.page.textContent('header')).includes('12,345.00'));
+
+    const email = `smoke-${Date.now()}@acme.test`;
+    await admin.page.fill('#create-user input[name=displayName]', 'Smoke Tester');
+    await admin.page.fill('#create-user input[name=email]', email);
+    await admin.page.fill('#create-user input[name=password]', 'Smoke-Test-Password-1');
+    await admin.page.selectOption('#create-user select[name=roleId]', { label: 'Requester' });
+    await admin.page.click('#create-user button[type=submit]');
+    await admin.page.waitForSelector('#message p.ok:has-text("User added.")');
+    await admin.page.waitForSelector('#users td:has-text("Smoke Tester")');
+    check('admin: created user listed with creator', (await admin.page.textContent('#users')).includes('Smoke Tester'));
+    check('admin: audit log shows threshold change and user creation',
+      (await admin.page.textContent('#audit')).includes('Threshold Changed') && (await admin.page.textContent('#audit')).includes('User Created'));
+
+    {
+      const page = await (await browser.newContext()).newPage();
+      await page.goto(BASE + '/');
+      await page.fill('input[name=email]', email);
+      await page.fill('input[name=password]', 'Smoke-Test-Password-1');
+      await page.click('button[type=submit]');
+      await page.waitForURL('**/requests.html');
+      await page.waitForSelector('header strong');
+      check('admin: new user signs in to the admin\'s organization', (await page.textContent('header')).includes('Acme Retail'));
+    }
+
+    // Restore the dev threshold so repeated runs leave the seeded data as it was.
+    const original = originalThreshold.replace(/[^0-9.]/g, '');
+    await admin.page.fill('#threshold input[name=amount]', original);
+    await admin.page.fill('#threshold input[name=reason]', 'Restore after browser smoke test');
+    await admin.page.click('#threshold button[type=submit]');
+    await admin.page.waitForSelector('#message p.ok');
+
     // Logout ends the session.
     await requester.page.click('button:has-text("Log out")');
     await requester.page.waitForURL('**/index.html');
@@ -106,7 +161,7 @@ async function session(browser, email) {
     await requester.page.waitForURL('**/index.html');
     check('logout: protected page redirects to sign-in', requester.page.url().endsWith('/index.html'));
 
-    const allProblems = [...requester.problems, ...approver.problems, ...globex.problems]
+    const allProblems = [...requester.problems, ...approver.problems, ...globex.problems, ...admin.problems]
       .filter(p => !p.includes('status of 4')); // expected 4xx responses logged by the browser
     check('no JS errors or CSP violations', allProblems.length === 0, allProblems.join(' | '));
   } finally {

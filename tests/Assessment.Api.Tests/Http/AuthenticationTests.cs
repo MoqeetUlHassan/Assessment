@@ -39,7 +39,7 @@ public class AuthenticationTests(ApiFactory factory) : IClassFixture<ApiFactory>
         using (var scope = tenant.AsAdmin(factory))
         {
             var user = await scope.Db.Users.SingleAsync(u => u.Id == tenant.Approver2.Id);
-            user.Deactivate();
+            user.Deactivate(tenant.Admin.Id, DateTimeOffset.UtcNow);
             await scope.Db.SaveChangesAsync();
         }
 
@@ -84,7 +84,7 @@ public class AuthenticationTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var client = await factory.SignedInClientAsync(tenant.Approver);
         Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/me")).StatusCode);
 
-        await MutateAsync(tenant, db => db.Users.SingleAsync(u => u.Id == tenant.Approver.Id), u => u.Deactivate());
+        await MutateAsync(tenant, db => db.Users.SingleAsync(u => u.Id == tenant.Approver.Id), u => u.Deactivate(tenant.Admin.Id, DateTimeOffset.UtcNow));
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/me")).StatusCode);
     }
@@ -96,7 +96,7 @@ public class AuthenticationTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var client = await factory.SignedInClientAsync(tenant.Approver);
 
         await MutateAsync(tenant, db => db.Users.SingleAsync(u => u.Id == tenant.Approver.Id),
-            u => u.SetPasswordHash(TestTenant.HashPassword(u, "A-Brand-New-Password-1")));
+            u => u.ResetPassword(TestTenant.HashPassword(u, "A-Brand-New-Password-1"), tenant.Admin.Id, DateTimeOffset.UtcNow));
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/me")).StatusCode);
     }
