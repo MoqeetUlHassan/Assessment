@@ -83,6 +83,9 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
+// Fail fast: outside Development a missing login-encryption key must stop startup, not the first login.
+_ = app.Services.GetRequiredService<PasswordFieldEncryption>();
+
 // Apply pending migrations on startup so a fresh clone runs with one command.
 // Off by default outside Development; see DECISIONS.md.
 if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
@@ -98,6 +101,15 @@ if (app.Configuration.GetValue<bool>("Seed:DevelopmentData"))
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+
+// Outside Development every request must be HTTPS: redirect plain HTTP, and HSTS tells browsers never to
+// try HTTP again. (Development stays on plain HTTP so reviewers need no dev-certificate step.)
+// Behind a TLS-terminating proxy, also configure forwarded headers so the original scheme is known.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
 
 // Security headers on every response. The CSP allows only same-origin scripts/styles (no inline script),
 // so even if user text were ever rendered as HTML by mistake, injected script would not execute.
