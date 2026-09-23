@@ -59,7 +59,7 @@ Guidance for AI coding agents working in this repo.
 - Entity IDs are domain-assigned and configured `ValueGeneratedNever()`. Without that, a new child added to a loaded aggregate is sent as an UPDATE and surfaces as a false 409.
 - Revision changes must touch the request row (done in the stamping interceptor) so `xmin` versions the whole aggregate.
 - Don't bundle services into an `[AsParameters]` object: .NET 10 validation walks it into the DbContext graph (500). Take services as plain endpoint parameters.
-- Anything run at startup must tolerate parallel hosts (test classes run in parallel). Migrations go through `DatabaseMigrator` (an advisory lock on the `postgres` maintenance DB); never call `Database.MigrateAsync()` directly. The seeder takes its own lock.
-- After adding a migration, run the suite on a **brand-new** test database (`DROP DATABASE assessment_test`), not just an already-migrated one. That's the only way the startup race shows up. It also skips an already-seeded database, so seed changes only reach fresh databases.
+- Anything run at startup must tolerate parallel hosts (test classes run in parallel). Migrations go through `DatabaseMigrator` (an advisory lock on the `postgres` maintenance DB); never call `Database.MigrateAsync()` directly. The seeder takes its own lock, and skips an already-seeded database, so seed changes only reach fresh databases.
+- After adding a migration, run the suite on a **brand-new** test database (`DROP DATABASE assessment_test`), not just an already-migrated one. That's the only way the startup race shows up.
 - Naming-convention changes rename EF's own `__EFMigrationsHistory` columns too. Databases created before the change must be recreated.
 - HSTS is never sent for `localhost` (by ASP.NET Core design); test it with a real host name.
