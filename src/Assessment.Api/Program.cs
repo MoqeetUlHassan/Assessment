@@ -52,7 +52,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
     });
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
-builder.Services.AddSingleton<LoginPasswordEncryption>(); // RSA key + single-use nonces for the password field
+builder.Services.AddSingleton<PasswordFieldEncryption>(); // RSA key + single-use nonces for password fields
 
 // --- Authorization: permission policies + resource handlers, fed by CurrentUser (loaded per request) ---
 builder.Services.AddScoped<CurrentUser>();

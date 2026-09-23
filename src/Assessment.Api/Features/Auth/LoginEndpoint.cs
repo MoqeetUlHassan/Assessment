@@ -12,16 +12,16 @@ namespace Assessment.Api.Features.Auth;
 public static class LoginEndpoint
 {
     public const string RateLimitPolicy = "login";
-    public const string ChallengeRateLimitPolicy = "login-challenge";
+    public const string ChallengeRateLimitPolicy = "password-challenge";
 
     // Verified against when the email is unknown, so response time doesn't reveal which emails exist.
     private static readonly string DummyHash = new PasswordHasher<User>().HashPassword(null!, Guid.NewGuid().ToString());
 
-    public sealed record LoginChallenge(string KeyId, string Algorithm, string PublicKey, string Nonce, int ExpiresInSeconds);
+    public sealed record PasswordChallenge(string KeyId, string Algorithm, string PublicKey, string Nonce, int ExpiresInSeconds);
 
     /// <summary>
     /// The password is never sent in plain text in the payload: only <see cref="EncryptedPassword"/>
-    /// (see <see cref="LoginPasswordEncryption"/>). A plain "password" field is not part of the contract.
+    /// (see <see cref="PasswordFieldEncryption"/>). A plain "password" field is not part of the contract.
     /// </summary>
     public sealed record LoginRequest(
         [property: Required, MaxLength(254)] string Email,
@@ -30,13 +30,14 @@ public static class LoginEndpoint
 
     public static void MapLogin(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/auth/login-challenge", (LoginPasswordEncryption encryption) =>
+        // One challenge per password field sent: login, and the admin create-user / reset-password forms.
+        app.MapGet("/api/auth/password-challenge", (PasswordFieldEncryption encryption) =>
             {
                 var nonce = encryption.IssueNonce();
                 return nonce is null
                     ? Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Too many pending logins; try again shortly.")
-                    : Results.Ok(new LoginChallenge(encryption.KeyId, LoginPasswordEncryption.Algorithm,
-                        encryption.PublicKeySpkiBase64, nonce, (int)LoginPasswordEncryption.NonceLifetime.TotalSeconds));
+                    : Results.Ok(new PasswordChallenge(encryption.KeyId, PasswordFieldEncryption.Algorithm,
+                        encryption.PublicKeySpkiBase64, nonce, (int)PasswordFieldEncryption.NonceLifetime.TotalSeconds));
             })
             .AllowAnonymous()
             .RequireRateLimiting(ChallengeRateLimitPolicy);
@@ -47,7 +48,7 @@ public static class LoginEndpoint
     }
 
     private static async Task<IResult> HandleAsync(
-        LoginRequest body, AppDbContext db, IPasswordHasher<User> hasher, LoginPasswordEncryption encryption,
+        LoginRequest body, AppDbContext db, IPasswordHasher<User> hasher, PasswordFieldEncryption encryption,
         HttpContext http, ILogger<LoginRequest> logger, CancellationToken ct)
     {
         // Decrypt first: a wrong key, tampered ciphertext or replayed/expired challenge is rejected before any lookup.

@@ -18,6 +18,14 @@
     return result.ok;
   }
 
+  // New passwords are encrypted like login passwords: the payload never carries them in plain text.
+  async function withEncryptedPassword(password, send) {
+    let encrypted;
+    try { encrypted = await App.encryptPassword(password); }
+    catch (e) { showMessage(message, e.message); return; }
+    return send(encrypted);
+  }
+
   // --- Threshold ---
   async function loadThreshold() {
     const current = (await api('GET', '/api/me')).data.organization.approvalThreshold;
@@ -56,8 +64,9 @@
                 `${u.displayName} ${u.isActive ? 'deactivated' : 'reactivated'}.`) }),
             password,
             el('button', { type: 'button', text: 'Reset password',
-              onclick: () => act('POST', `/api/admin/users/${u.id}/password`, { password: password.value },
-                `Password reset for ${u.displayName}; their sessions have ended.`) }))));
+              onclick: () => withEncryptedPassword(password.value, encrypted =>
+                act('POST', `/api/admin/users/${u.id}/password`, encrypted,
+                  `Password reset for ${u.displayName}; their sessions have ended.`)) }))));
       })),
     );
     const roleSelect = document.querySelector('#create-user select[name=roleId]');
@@ -68,10 +77,11 @@
     const form = document.getElementById('create-user');
     form.addEventListener('submit', async e => {
       e.preventDefault();
-      if (await act('POST', '/api/admin/users', {
-        displayName: form.displayName.value, email: form.email.value,
-        password: form.password.value, roleId: form.roleId.value,
-      }, 'User added.')) form.reset();
+      await withEncryptedPassword(form.password.value, async encrypted => {
+        if (await act('POST', '/api/admin/users', {
+          displayName: form.displayName.value, email: form.email.value, roleId: form.roleId.value, ...encrypted,
+        }, 'User added.')) form.reset();
+      });
     });
   }
 

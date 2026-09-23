@@ -80,11 +80,40 @@ const App = (() => {
     ].filter(Boolean));
   }
 
+  // Every password field (login, admin create user, admin reset password) is sent encrypted, never in plain text:
+  // RSA-OAEP-SHA256 with the server's public key over (single-use nonce || password), so a captured payload
+  // neither reveals nor replays the password. 3072-bit key → 318 bytes of plaintext, 302 left after the nonce.
+  const MAX_PASSWORD_BYTES = 302;
+  const fromBase64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const toBase64 = bytes => btoa(String.fromCharCode(...bytes));
+
+  async function encryptPassword(password) {
+    if (!window.crypto || !crypto.subtle) {
+      throw new Error('Password encryption needs a secure page (HTTPS or localhost).');
+    }
+    const challenge = await api('GET', '/api/auth/password-challenge');
+    if (!challenge.ok) throw new Error(problemText(challenge));
+    const { keyId, publicKey, nonce } = challenge.data;
+
+    const passwordBytes = new TextEncoder().encode(password);
+    if (passwordBytes.length > MAX_PASSWORD_BYTES) throw new Error('Password is too long.');
+
+    const key = await crypto.subtle.importKey('spki', fromBase64(publicKey), { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
+    const nonceBytes = fromBase64(nonce);
+    const plain = new Uint8Array(nonceBytes.length + passwordBytes.length);
+    plain.set(nonceBytes);
+    plain.set(passwordBytes, nonceBytes.length);
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, key, plain));
+    plain.fill(0);
+    passwordBytes.fill(0);
+    return { keyId, encryptedPassword: toBase64(cipher) };
+  }
+
   function numberOrNull(value) {
     if (value === '' || value === null || value === undefined) return null;
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   }
 
-  return { api, problemText, el, money, when, humanize, showMessage, requireMe, renderHeader, numberOrNull };
+  return { api, problemText, el, money, when, humanize, showMessage, requireMe, renderHeader, numberOrNull, encryptPassword };
 })();

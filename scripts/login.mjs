@@ -13,7 +13,7 @@ if (!email || !password) {
   process.exit(2);
 }
 
-const challenge = await (await fetch(`${base}/api/auth/login-challenge`)).json();
+const challenge = await (await fetch(`${base}/api/auth/password-challenge`)).json();
 const key = await webcrypto.subtle.importKey('spki', Buffer.from(challenge.publicKey, 'base64'),
   { name: 'RSA-OAEP', hash: 'SHA-256' }, false, ['encrypt']);
 const plain = Buffer.concat([Buffer.from(challenge.nonce, 'base64'), Buffer.from(password, 'utf8')]);

@@ -5,7 +5,8 @@ using System.Text;
 namespace Assessment.Api.Features.Auth;
 
 /// <summary>
-/// Application-level encryption of the password field in the login payload (on top of HTTPS).
+/// Application-level encryption of every password field in request payloads (on top of HTTPS):
+/// login, admin "create user" and admin "reset password".
 ///
 /// The browser fetches a challenge (public key + single-use nonce), encrypts <c>nonce || UTF-8 password</c>
 /// with RSA-OAEP-SHA256, and posts only the ciphertext. The server decrypts with its private key and consumes
@@ -16,7 +17,7 @@ namespace Assessment.Api.Features.Auth;
 /// ephemeral key is generated in memory at startup (Development). Multiple instances would need a shared key
 /// and a shared nonce store.
 /// </summary>
-public sealed class LoginPasswordEncryption : IDisposable
+public sealed class PasswordFieldEncryption : IDisposable
 {
     public const string Algorithm = "RSA-OAEP-256";
     public const int NonceBytes = 16;
@@ -30,8 +31,8 @@ public sealed class LoginPasswordEncryption : IDisposable
     public string KeyId { get; }
     public string PublicKeySpkiBase64 { get; }
 
-    public LoginPasswordEncryption(IConfiguration configuration, IHostEnvironment environment, TimeProvider clock,
-        ILogger<LoginPasswordEncryption> logger)
+    public PasswordFieldEncryption(IConfiguration configuration, IHostEnvironment environment, TimeProvider clock,
+        ILogger<PasswordFieldEncryption> logger)
     {
         _clock = clock;
         _rsa = RSA.Create();

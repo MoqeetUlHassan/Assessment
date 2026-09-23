@@ -2,15 +2,20 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Assessment.Api.Features.Admin;
 
+// Password fields arrive encrypted (PasswordFieldEncryption), never in plain text; the length policy
+// is applied after decryption.
 public sealed record CreateUserBody(
     [property: Required, MaxLength(200)] string DisplayName,
     [property: Required, MaxLength(254)] string Email,
-    [property: Required, MinLength(12), MaxLength(200)] string Password,
+    [property: Required, MaxLength(64)] string KeyId,
+    [property: Required, MaxLength(2048)] string EncryptedPassword,
     [property: Required] Guid? RoleId);
 
 public sealed record ChangeRoleBody([property: Required] Guid? RoleId);
 
-public sealed record ResetPasswordBody([property: Required, MinLength(12), MaxLength(200)] string Password);
+public sealed record ResetPasswordBody(
+    [property: Required, MaxLength(64)] string KeyId,
+    [property: Required, MaxLength(2048)] string EncryptedPassword);
 
 public sealed record CreateRoleBody(
     [property: Required, MaxLength(100)] string Name,

@@ -45,11 +45,13 @@ public static class AdminEndpoints
         users.MapPost("/{id:guid}/reactivate", (Guid id, AppDbContext db, CurrentUser me, TimeProvider clock, CancellationToken ct) =>
             WithUserAsync(db, id, ct, user => { user.Reactivate(me.UserId, clock.GetUtcNow()); return Task.FromResult<IResult?>(null); }));
         users.MapPost("/{id:guid}/password", (Guid id, ResetPasswordBody body, AppDbContext db, IPasswordHasher<User> hasher,
-                CurrentUser me, TimeProvider clock, CancellationToken ct) =>
+                PasswordFieldEncryption encryption, CurrentUser me, TimeProvider clock, CancellationToken ct) =>
             WithUserAsync(db, id, ct, user =>
             {
-                User.EnsurePasswordPolicy(body.Password);
-                user.ResetPassword(hasher.HashPassword(user, body.Password), me.UserId, clock.GetUtcNow());
+                var password = encryption.TryDecryptPassword(body.KeyId, body.EncryptedPassword);
+                if (password is null) return Task.FromResult<IResult?>(InvalidPasswordChallenge());
+                User.EnsurePasswordPolicy(password);
+                user.ResetPassword(hasher.HashPassword(user, password), me.UserId, clock.GetUtcNow());
                 return Task.FromResult<IResult?>(null);
             }));
 
@@ -76,14 +78,17 @@ public static class AdminEndpoints
     }
 
     private static async Task<IResult> CreateUserAsync(
-        CreateUserBody body, AppDbContext db, IPasswordHasher<User> hasher, CurrentUser me, TimeProvider clock, CancellationToken ct)
+        CreateUserBody body, AppDbContext db, IPasswordHasher<User> hasher, PasswordFieldEncryption encryption,
+        CurrentUser me, TimeProvider clock, CancellationToken ct)
     {
         var role = await db.Roles.SingleOrDefaultAsync(r => r.Id == body.RoleId, ct); // own org only
         if (role is null) return RoleNotFound();
 
-        User.EnsurePasswordPolicy(body.Password);
+        var password = encryption.TryDecryptPassword(body.KeyId, body.EncryptedPassword);
+        if (password is null) return InvalidPasswordChallenge();
+        User.EnsurePasswordPolicy(password);
         var user = User.CreateByAdmin(me.OrganizationId, role, body.Email, body.DisplayName,
-            u => hasher.HashPassword(u, body.Password), me.UserId, clock.GetUtcNow());
+            u => hasher.HashPassword(u, password), me.UserId, clock.GetUtcNow());
         db.Add(user);
 
         try
@@ -190,6 +195,9 @@ public static class AdminEndpoints
             e.ActorUserId is { } a ? names.GetValueOrDefault(a, "?") : "System", e.Details, e.CreatedAt)).ToList();
         return Results.Ok(new PagedResult<OrgAuditEntry>(items, pageNumber, size, total));
     }
+
+    private static IResult InvalidPasswordChallenge() => Results.Problem(statusCode: StatusCodes.Status400BadRequest,
+        title: "The password challenge is invalid or has expired. Reload the page and try again.");
 
     private static IResult RoleNotFound() =>
         Results.ValidationProblem(new Dictionary<string, string[]> { ["roleId"] = ["Role not found."] });
