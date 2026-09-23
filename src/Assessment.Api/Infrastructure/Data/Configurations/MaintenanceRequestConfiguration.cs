@@ -48,9 +48,16 @@ internal sealed class MaintenanceRequestConfiguration : IEntityTypeConfiguration
         builder.Ignore(r => r.LastApprovedContent);
         builder.Ignore(r => r.AllowedActions);
 
-        // List + approval queue.
-        builder.HasIndex(r => new { r.OrganizationId, r.Status, r.CreatedAt })
-            .IsDescending(false, false, true);
+        // Request list, which pages ORDER BY created_at DESC, id DESC. Both indexes end with that exact order
+        // (id included as the tie-breaker), so Postgres reads a page straight off the index with no sort step:
+        // the default "all statuses" view...
+        builder.HasIndex(r => new { r.OrganizationId, r.CreatedAt, r.Id })
+            .HasDatabaseName("ix_maintenance_requests_list")
+            .IsDescending(false, true, true);
+        // ...and the status-filtered view (approval queue).
+        builder.HasIndex(r => new { r.OrganizationId, r.Status, r.CreatedAt, r.Id })
+            .HasDatabaseName("ix_maintenance_requests_list_by_status")
+            .IsDescending(false, false, true, true);
 
         // Spend report: covering, and only over completed requests.
         builder.HasIndex(r => new { r.OrganizationId, r.SiteId, r.CompletedAt })
