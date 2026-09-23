@@ -29,6 +29,17 @@ The draft plan (commit `5da9b7e`) was reviewed and changed before any code was w
 - **Changed three defaults:** Requesters see the whole org, not just their own requests; an OrgAdmin role manages the threshold through an API; and there are `created_at`/`updated_at` columns on every table.
 - **Asked for the login → org ID flow to be spelled out.** The draft said "org ID comes from the cookie", which read as if a cookie existed before login.
 
+**v2 → v3 → v3.1** (commits `560eb39`, `f3f86ad`):
+- **Roles now carry permissions**, and checks use permissions. OrgAdmin manages users and roles.
+- **Edits while pending** supersede the pending revision and need re-approval.
+- **The actual cost** needs approval whenever it's at or above the threshold.
+- **The agent flagged that an all-powerful OrgAdmin could self-approve**, via a threshold raise or a sock-puppet account. I decided:
+  - no one approves their own request, OrgAdmin included;
+  - a threshold change applies only to requests created *after* it (snapshot per request);
+  - everything is user-stamped, so the remaining risk is visible in the audit.
+
+  I accepted transparency over prevention; the agent recorded four-eyes as the production option.
+
 ## Plausible but wrong
 
 **What:** In the v1 plan, the agent argued against letting Approvers change the threshold: *"An Approver who could change it could **lower** it, then raise their own request under it: a self-approval bypass."* I accepted this and repeated it back in my review answers.
