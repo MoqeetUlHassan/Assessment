@@ -1,5 +1,4 @@
 using Assessment.Api.Domain;
-using Assessment.Api.Infrastructure.Data;
 
 namespace Assessment.Api.Tests.Persistence;
 
@@ -9,8 +8,9 @@ namespace Assessment.Api.Tests.Persistence;
 /// </summary>
 internal sealed record TestTenant(Organization Org, Site Site, User Requester, User Approver)
 {
-    public static async Task<TestTenant> CreateAsync(AppDbContext db, decimal threshold = 10_000m)
+    public static async Task<TestTenant> CreateAsync(ApiFactory factory, decimal threshold = 10_000m)
     {
+        using var scope = DbScope.System(factory);
         var tag = Guid.NewGuid().ToString("N")[..12];
         var org = Organization.Create($"Org {tag}", threshold);
         var site = Site.Create(org.Id, "Site 12");
@@ -20,11 +20,24 @@ internal sealed record TestTenant(Organization Org, Site Site, User Requester, U
         var requester = User.Create(org.Id, requesterRole.Id, $"req-{tag}@test.local", "Rita Requester", "not-a-real-hash");
         var approver = User.Create(org.Id, approverRole.Id, $"app-{tag}@test.local", "Andy Approver", "not-a-real-hash");
 
-        db.AddRange(org, site, approverRole, requesterRole, requester, approver);
-        await db.SaveChangesAsync();
+        scope.Db.AddRange(org, site, approverRole, requesterRole, requester, approver);
+        await scope.Db.SaveChangesAsync();
         return new TestTenant(org, site, requester, approver);
     }
 
+    public DbScope AsRequester(ApiFactory factory) => DbScope.As(factory, Org.Id, Requester.Id);
+    public DbScope AsApprover(ApiFactory factory) => DbScope.As(factory, Org.Id, Approver.Id);
+
     public MaintenanceRequest Raise(decimal estimate, DateTimeOffset now) =>
         MaintenanceRequest.Raise(Org.Id, Site.Id, Requester.Id, "Fix boiler", estimate, Org.ApprovalThreshold, now);
+
+    /// <summary>Raises and saves a request as the requester; returns its id.</summary>
+    public async Task<MaintenanceRequest> SaveNewRequestAsync(ApiFactory factory, decimal estimate, DateTimeOffset now)
+    {
+        using var scope = AsRequester(factory);
+        var request = Raise(estimate, now);
+        scope.Db.Add(request);
+        await scope.Db.SaveChangesAsync();
+        return request;
+    }
 }
