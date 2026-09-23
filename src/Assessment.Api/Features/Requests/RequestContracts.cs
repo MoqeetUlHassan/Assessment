@@ -43,7 +43,13 @@ public sealed record RevisionView(
 /// What the caller may do right now: the transition table intersected with their permissions.
 /// A convenience for the UI only; every action is enforced again server-side.
 /// </summary>
-public sealed record AvailableActions(bool CanEdit, bool CanSubmitActualCost, bool CanApprove, bool CanReject);
+/// <remarks>
+/// The CannotXReason fields explain a refusal in the caller's own terms. They are set only when the action
+/// would otherwise be possible in the request's current state.
+/// </remarks>
+public sealed record AvailableActions(
+    bool CanEdit, bool CanSubmitActualCost, bool CanApprove, bool CanReject,
+    string? CannotDecideReason, string? CannotModifyReason);
 
 public sealed record RequestDetail(
     Guid Id, Guid SiteId, string SiteName, Guid RequestedById, string RequestedByName,

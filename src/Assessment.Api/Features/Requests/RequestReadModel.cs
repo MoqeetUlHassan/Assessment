@@ -18,8 +18,12 @@ internal static class RequestReadModel
 
         var revisions = request.Revisions.OrderBy(r => r.Sequence).Select(r => ToView(r, names)).ToList();
         var allowed = request.AllowedActions;
-        var canModify = MaintenanceRequestAuthorizationHandler.CanModify(me, request);
-        var canDecide = MaintenanceRequestAuthorizationHandler.CanDecide(me, request);
+        var cannotModify = MaintenanceRequestAuthorizationHandler.WhyCannotModify(me, request);
+        var cannotDecide = MaintenanceRequestAuthorizationHandler.WhyCannotDecide(me, request);
+        var canModify = cannotModify is null;
+        var canDecide = cannotDecide is null;
+        var stateAllowsDecision = allowed.Contains(RequestAction.Approve) || allowed.Contains(RequestAction.Reject);
+        var stateAllowsChange = allowed.Contains(RequestAction.Edit) || allowed.Contains(RequestAction.SubmitActualCost);
 
         return new RequestDetail(
             request.Id, request.SiteId, siteName, request.RequestedById, names.GetValueOrDefault(request.RequestedById, "?"),
@@ -31,7 +35,9 @@ internal static class RequestReadModel
                 CanEdit: canModify && allowed.Contains(RequestAction.Edit),
                 CanSubmitActualCost: canModify && allowed.Contains(RequestAction.SubmitActualCost),
                 CanApprove: canDecide && allowed.Contains(RequestAction.Approve),
-                CanReject: canDecide && allowed.Contains(RequestAction.Reject)),
+                CanReject: canDecide && allowed.Contains(RequestAction.Reject),
+                CannotDecideReason: stateAllowsDecision ? cannotDecide : null,
+                CannotModifyReason: stateAllowsChange ? cannotModify : null),
             request.CompletedAt, request.CreatedAt, request.UpdatedAt);
     }
 

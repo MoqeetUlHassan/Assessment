@@ -44,6 +44,7 @@
       ),
       pending ? pendingBox(r, pending, a) : null,
       a.canEdit ? editForm(r) : null,
+      a.cannotModifyReason ? el('p', { class: 'muted', text: `Editing / recording the actual cost: ${a.cannotModifyReason}` }) : null,
       a.canSubmitActualCost ? completeForm(r) : null,
       revisionsTable(r.revisions),
       history ? historyTable(history.events) : null,
@@ -67,7 +68,7 @@
             a.canReject ? reason : null,
             a.canReject ? el('button', { type: 'button', text: 'Reject',
               onclick: () => act('POST', `/api/requests/${r.id}/reject`, { revisionId: p.id, reason: reason.value }, 'Rejected.') }) : null)
-        : el('p', { class: 'muted', text: 'You can\'t decide this one: you raised it, submitted this change, or lack the approve permission.' }),
+        : el('p', { class: 'muted', text: a.cannotDecideReason || 'You can\'t decide this one.' }),
     );
   }
 

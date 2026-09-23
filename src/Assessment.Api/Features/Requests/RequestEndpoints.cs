@@ -60,7 +60,9 @@ public static class RequestEndpoints
         if (request is null) return NotFound();
 
         if (!(await d.Authz.AuthorizeAsync(d.Principal, request, operation)).Succeeded)
-            return Forbidden(operation);
+            return Forbidden(operation == RequestOperations.Decide
+                ? MaintenanceRequestAuthorizationHandler.WhyCannotDecide(d.Me, request)
+                : MaintenanceRequestAuthorizationHandler.WhyCannotModify(d.Me, request));
 
         change(request, d.Now);          // illegal transition / stale revision / invalid input → exception handler → 409/400
         await d.Db.SaveChangesAsync(ct); // xmin conflict → 409
@@ -134,9 +136,7 @@ public static class RequestEndpoints
     private static IResult NotFound() =>
         Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Request not found.");
 
-    private static IResult Forbidden(OperationAuthorizationRequirement operation) => Results.Problem(
-        statusCode: StatusCodes.Status403Forbidden,
-        title: operation == RequestOperations.Decide
-            ? "You can't approve or reject this request: you raised it, submitted the pending change, or lack permission."
-            : "You can only change requests you raised, unless you have the requests.manage permission.");
+    // The title is the specific reason from the same rule that refused (see MaintenanceRequestAuthorizationHandler).
+    private static IResult Forbidden(string? reason) => Results.Problem(
+        statusCode: StatusCodes.Status403Forbidden, title: reason ?? "You can't perform this action on this request.");
 }

@@ -59,6 +59,7 @@ builder.Services.AddScoped<CurrentUser>();
 builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
 builder.Services.AddScoped<IAuthorizationHandler, MaintenanceRequestAuthorizationHandler>();
 builder.Services.AddAuthorizationBuilder().AddPermissionPolicies();
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, PermissionDeniedResultHandler>(); // 403 names the missing permission
 
 // --- Rate limiting: login attempts per client IP ---
 var loginPermits = builder.Configuration.GetValue("RateLimiting:LoginPermitsPerMinute", 10);

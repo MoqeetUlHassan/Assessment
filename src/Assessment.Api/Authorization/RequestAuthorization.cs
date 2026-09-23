@@ -35,16 +35,33 @@ public sealed class MaintenanceRequestAuthorizationHandler(CurrentUser currentUs
         return Task.CompletedTask;
     }
 
-    public static bool CanDecide(CurrentUser user, MaintenanceRequest request) =>
-        user.IsAuthenticated
-        && user.OrganizationId == request.OrganizationId // already guaranteed by query filters; asserted anyway
-        && user.Has(Permissions.RequestsApprove)
-        && request.RequestedById != user.UserId
-        && request.PendingRevision?.SubmittedById != user.UserId;
+    // Each rule returns WHY it refuses (null = allowed), so the UI and 403 responses explain the actual reason
+    // and can never disagree with the check itself. Order matters: the most fundamental reason is reported first.
 
-    public static bool CanModify(CurrentUser user, MaintenanceRequest request) =>
-        user.IsAuthenticated
-        && user.OrganizationId == request.OrganizationId
-        && (user.Has(Permissions.RequestsManage)
-            || (user.Has(Permissions.RequestsCreate) && request.RequestedById == user.UserId));
+    public static bool CanDecide(CurrentUser user, MaintenanceRequest request) => WhyCannotDecide(user, request) is null;
+
+    public static bool CanModify(CurrentUser user, MaintenanceRequest request) => WhyCannotModify(user, request) is null;
+
+    public static string? WhyCannotDecide(CurrentUser user, MaintenanceRequest request)
+    {
+        // Org mismatch is already impossible via query filters; asserted anyway.
+        if (!user.IsAuthenticated || user.OrganizationId != request.OrganizationId) return "You can't act on this request.";
+        if (!user.Has(Permissions.RequestsApprove))
+            return "Your role can't approve or reject requests (it doesn't have the requests.approve permission).";
+        if (request.RequestedById == user.UserId)
+            return "You raised this request, and nobody can approve or reject their own request.";
+        if (request.PendingRevision?.SubmittedById == user.UserId)
+            return "You submitted this change, and nobody can approve or reject their own change.";
+        return null;
+    }
+
+    public static string? WhyCannotModify(CurrentUser user, MaintenanceRequest request)
+    {
+        if (!user.IsAuthenticated || user.OrganizationId != request.OrganizationId) return "You can't act on this request.";
+        if (user.Has(Permissions.RequestsManage)) return null;
+        if (user.Has(Permissions.RequestsCreate) && request.RequestedById == user.UserId) return null;
+        return user.Has(Permissions.RequestsCreate)
+            ? "Only the person who raised this request, or someone with the requests.manage permission, can change it."
+            : "Your role can't change requests.";
+    }
 }
