@@ -119,4 +119,31 @@ public class RequestAuthorizationHttpTests(ApiFactory factory) : IClassFixture<A
         Assert.False(asRequester.GetProperty("canApprove").GetBoolean());
         Assert.True(asApprover.GetProperty("canApprove").GetBoolean());
     }
+
+    [Fact]
+    public async Task A_requester_viewing_someone_elses_request_is_told_the_real_reason()
+    {
+        var t = await TestTenant.CreateAsync(factory);
+        var approver = await factory.SignedInClientAsync(t.Approver);
+        var requester = await factory.SignedInClientAsync(t.Requester);
+        var approversRequest = await approver.CreateRequestAsync(t.Site.Id, 50_000m);
+
+        var actions = (await requester.GetFromJsonAsync<JsonElement>($"/api/requests/{approversRequest.Id()}")).GetProperty("actions");
+        var decideReason = actions.GetProperty("cannotDecideReason").GetString()!;
+        Assert.Contains("requests.approve", decideReason);
+        Assert.DoesNotContain("raised this request", decideReason);
+        Assert.StartsWith("Only the person who raised this request", actions.GetProperty("cannotModifyReason").GetString());
+
+        // The API's 403 names the same missing permission (from the endpoint's permission policy).
+        var attempt = await requester.ApproveAsync(approversRequest.Id(), approversRequest.PendingRevisionId());
+        Assert.Equal(HttpStatusCode.Forbidden, attempt.StatusCode);
+        Assert.Equal("Your role doesn't have the requests.approve permission.",
+            (await attempt.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
+
+        // A 403 from the record-level rule is specific too: an approver approving their own request.
+        var own = await approver.ApproveAsync(approversRequest.Id(), approversRequest.PendingRevisionId());
+        Assert.Equal(HttpStatusCode.Forbidden, own.StatusCode);
+        Assert.StartsWith("You raised this request", (await own.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
+    }
 }
+

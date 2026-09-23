@@ -104,4 +104,29 @@ public class RequestAuthorizationTests
         Assert.False(MaintenanceRequestAuthorizationHandler.CanDecide(As(foreigner, foreignRole), request));
         Assert.False(MaintenanceRequestAuthorizationHandler.CanModify(As(foreigner, foreignRole), request));
     }
+
+    [Fact]
+    public void Refusal_reasons_name_the_actual_rule_not_a_catch_all()
+    {
+        // Regression: the UI used one generic sentence ("you raised it, submitted this change, or lack the
+        // permission"), which told a Requester viewing an Approver's request that they had raised it.
+        var approversRequest = PendingRequestBy(Approver);
+
+        var requesterReason = MaintenanceRequestAuthorizationHandler.WhyCannotDecide(As(Requester, RequesterRole), approversRequest);
+        Assert.Contains("requests.approve", requesterReason);
+        Assert.DoesNotContain("raised", requesterReason);
+
+        Assert.StartsWith("You raised this request",
+            MaintenanceRequestAuthorizationHandler.WhyCannotDecide(As(Approver, ApproverRole), approversRequest));
+
+        var editedByColleague = MaintenanceRequest.Raise(Org, Guid.CreateVersion7(), Requester.Id, "Fix boiler", 5_000m, 10_000m, Now);
+        editedByColleague.Edit(Approver.Id, "Replace boiler", 15_000m, "scope grew", Now);
+        Assert.StartsWith("You submitted this change",
+            MaintenanceRequestAuthorizationHandler.WhyCannotDecide(As(Approver, ApproverRole), editedByColleague));
+
+        Assert.Null(MaintenanceRequestAuthorizationHandler.WhyCannotDecide(As(OtherApprover, ApproverRole), approversRequest));
+        Assert.StartsWith("Only the person who raised this request",
+            MaintenanceRequestAuthorizationHandler.WhyCannotModify(As(Requester, RequesterRole), approversRequest));
+    }
 }
+

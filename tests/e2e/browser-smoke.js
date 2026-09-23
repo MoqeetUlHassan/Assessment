@@ -74,7 +74,8 @@ async function session(browser, email) {
     check('XSS: description rendered as text, not HTML', h1 === XSS && injectedImg === 0 && !xssRan, `h1=${JSON.stringify(h1)} img=${injectedImg} ran=${xssRan}`);
     check('detail: status Pending approval', (await requester.page.textContent('dd.status')) === 'Pending Approval');
     check('detail: requester sees no Approve button', (await requester.page.locator('button', { hasText: 'Approve' }).count()) === 0);
-    check('detail: requester told why they cannot decide', (await requester.page.textContent('.pending')).includes("can't decide"));
+    check('detail: requester told the specific reason they cannot decide',
+      (await requester.page.textContent('.pending')).includes('requests.approve'));
 
     // Requester edits the pending request with a reason (supersedes the pending revision).
     await requester.page.fill('section:has(h2:has-text("Edit")) input[name=estimatedCost]', '16000');
