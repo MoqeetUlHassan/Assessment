@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maintenance Requests · Spend report</title>
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <header></header>
+  <main>
+    <h1>Spend per site</h1>
+    <form id="range" class="inline">
+      <label>From <input name="from" type="date" required></label>
+      <label>To <input name="to" type="date" required></label>
+      <button type="submit">Show</button>
+    </form>
+    <p class="muted">Spend = actual cost of completed requests, counted on the day they completed (UTC). Both dates are inclusive. Every site in your organization is listed, including those with no spend.</p>
+    <div id="message"></div>
+    <div class="scroll"><table id="report"></table></div>
+  </main>
+  <script src="/app.js"></script>
+  <script src="/report.js"></script>
+</body>
+</html>

@@ -72,6 +72,7 @@ const App = (() => {
       el('strong', { text: me.organization.name }),
       el('span', { class: 'muted', text: `Approval threshold: ${money(me.organization.approvalThreshold)}` }),
       el('a', { href: '/requests.html', text: 'Requests' }),
+      me.permissions.includes('reports.spend') ? el('a', { href: '/report.html', text: 'Spend report' }) : null,
       me.permissions.some(p => p.startsWith('admin.')) ? el('a', { href: '/admin.html', text: 'Admin' }) : null,
       el('span', { class: 'spacer' }),
       el('span', { text: `${me.displayName} (${me.role})` }),

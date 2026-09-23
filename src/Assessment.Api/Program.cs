@@ -3,6 +3,7 @@ using Assessment.Api.Authorization;
 using Assessment.Api.Domain;
 using Assessment.Api.Features.Admin;
 using Assessment.Api.Features.Auth;
+using Assessment.Api.Features.Reports;
 using Assessment.Api.Features.Requests;
 using Assessment.Api.Features.Sites;
 using Assessment.Api.Infrastructure;
@@ -125,6 +126,7 @@ app.MapSession();
 app.MapSites();
 app.MapRequests();
 app.MapAdmin();
+app.MapSpendReport();
 
 app.Run();
 
