@@ -12,23 +12,50 @@ namespace Assessment.Api.Features.Auth;
 public static class LoginEndpoint
 {
     public const string RateLimitPolicy = "login";
+    public const string ChallengeRateLimitPolicy = "login-challenge";
 
     // Verified against when the email is unknown, so response time doesn't reveal which emails exist.
     private static readonly string DummyHash = new PasswordHasher<User>().HashPassword(null!, Guid.NewGuid().ToString());
 
+    public sealed record LoginChallenge(string KeyId, string Algorithm, string PublicKey, string Nonce, int ExpiresInSeconds);
+
+    /// <summary>
+    /// The password is never sent in plain text in the payload: only <see cref="EncryptedPassword"/>
+    /// (see <see cref="LoginPasswordEncryption"/>). A plain "password" field is not part of the contract.
+    /// </summary>
     public sealed record LoginRequest(
         [property: Required, MaxLength(254)] string Email,
-        [property: Required, MaxLength(200)] string Password);
+        [property: Required, MaxLength(64)] string KeyId,
+        [property: Required, MaxLength(2048)] string EncryptedPassword);
 
-    public static void MapLogin(this IEndpointRouteBuilder app) =>
+    public static void MapLogin(this IEndpointRouteBuilder app)
+    {
+        app.MapGet("/api/auth/login-challenge", (LoginPasswordEncryption encryption) =>
+            {
+                var nonce = encryption.IssueNonce();
+                return nonce is null
+                    ? Results.Problem(statusCode: StatusCodes.Status503ServiceUnavailable, title: "Too many pending logins; try again shortly.")
+                    : Results.Ok(new LoginChallenge(encryption.KeyId, LoginPasswordEncryption.Algorithm,
+                        encryption.PublicKeySpkiBase64, nonce, (int)LoginPasswordEncryption.NonceLifetime.TotalSeconds));
+            })
+            .AllowAnonymous()
+            .RequireRateLimiting(ChallengeRateLimitPolicy);
+
         app.MapPost("/api/auth/login", HandleAsync)
             .AllowAnonymous()
             .RequireRateLimiting(RateLimitPolicy);
+    }
 
     private static async Task<IResult> HandleAsync(
-        LoginRequest body, AppDbContext db, IPasswordHasher<User> hasher, HttpContext http,
-        ILogger<LoginRequest> logger, CancellationToken ct)
+        LoginRequest body, AppDbContext db, IPasswordHasher<User> hasher, LoginPasswordEncryption encryption,
+        HttpContext http, ILogger<LoginRequest> logger, CancellationToken ct)
     {
+        // Decrypt first: a wrong key, tampered ciphertext or replayed/expired challenge is rejected before any lookup.
+        var password = encryption.TryDecryptPassword(body.KeyId, body.EncryptedPassword);
+        if (password is null)
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest,
+                title: "The login challenge is invalid or has expired. Reload the page and try again.");
+
         string email;
         try { email = User.NormalizeEmail(body.Email); }
         catch (DomainException) { return InvalidCredentials(); }
@@ -38,7 +65,7 @@ public static class LoginEndpoint
         var user = await db.Users.IgnoreQueryFilters().Include(u => u.Role)
             .SingleOrDefaultAsync(u => u.Email == email, ct);
 
-        var verification = hasher.VerifyHashedPassword(user!, user?.PasswordHash ?? DummyHash, body.Password);
+        var verification = hasher.VerifyHashedPassword(user!, user?.PasswordHash ?? DummyHash, password);
         if (user is null || !user.IsActive || verification == PasswordVerificationResult.Failed)
         {
             logger.LogWarning("Failed login for {Email} from {Ip}", email, http.Connection.RemoteIpAddress);

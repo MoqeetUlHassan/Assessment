@@ -52,6 +52,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
     });
 builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+builder.Services.AddSingleton<LoginPasswordEncryption>(); // RSA key + single-use nonces for the password field
 
 // --- Authorization: permission policies + resource handlers, fed by CurrentUser (loaded per request) ---
 builder.Services.AddScoped<CurrentUser>();
@@ -61,12 +62,17 @@ builder.Services.AddAuthorizationBuilder().AddPermissionPolicies();
 
 // --- Rate limiting: login attempts per client IP ---
 var loginPermits = builder.Configuration.GetValue("RateLimiting:LoginPermitsPerMinute", 10);
+var challengePermits = builder.Configuration.GetValue("RateLimiting:LoginChallengePermitsPerMinute", 30);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
     options.AddPolicy(LoginEndpoint.RateLimitPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
         http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
         _ => new FixedWindowRateLimiterOptions { PermitLimit = loginPermits, Window = TimeSpan.FromMinutes(1) }));
+    // Challenges are cheap but hold a nonce for 2 minutes each: limited separately so they can't flood memory.
+    options.AddPolicy(LoginEndpoint.ChallengeRateLimitPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = challengePermits, Window = TimeSpan.FromMinutes(1) }));
 });
 
 builder.Services.AddValidation();
