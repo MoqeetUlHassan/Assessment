@@ -65,6 +65,10 @@ The draft plan (commit `5da9b7e`) was reviewed and changed before any code was w
 
 **Fifth instance (client): a login race only a real browser exposed.** `login.js` first awaited a "am I already signed in?" call, and only *then* attached the form's submit handler. `node --check` passed and the code read fine. The headless-browser smoke test clicked "Sign in" before the handler existed, so the form fell through to a native submission. Without `method` that's a **GET with the email and password in the URL**, which ends up in browser history and server logs. Fixed by attaching the handler synchronously first and adding `method="post"`. The smoke test now also asserts the password never appears in the URL.
 
+**Also found by the browser test (step 6):**
+- **A visible `null` in the header for every non-admin.** `renderHeader` passed `null` (in place of the Admin link) straight to `replaceChildren()`, which prints it as text. The safe `el()` helper filters nulls, but this call bypassed it. The smoke test's header check only looked for the org and user name, so it was widened.
+- **An apparently flaky run that wasn't:** back-to-back smoke runs got `429`, because the login rate limit (10/min per IP) was doing its job. I kept the security setting as it is; the test now reports the rate limit explicitly, and the README says to allow a minute between runs.
+
 Also noted: the first startup logs `fail: ... An error occurred using the connection to database 'assessment'` even though startup succeeded (it's EF checking whether the DB exists). An agent reading logs could "fix" this non-problem, or learn to ignore real connection errors.
 
 ## Checks I did on agent output
@@ -77,6 +81,7 @@ Also noted: the first startup logs `fail: ... An error occurred using the connec
   - tenancy: query filters removed; the guard's owner check disabled; a stray `.IgnoreQueryFilters()` call;
   - auth: own-revision check removed; the session middleware trusting the cookie; the own-request check removed. **That last one survived at first; see "Third instance" above.**
   - requests: aggregate touch removed; store-generated IDs; 403 instead of 404 for a foreign ID; the malformed-input mapping removed.
+  - admin: self-deactivation allowed; role lookup bypassing the org filter; password-reset audit removed; admin-only permissions made grantable.
 - **A headless-browser smoke test** (installed Edge + `playwright-core`, kept in `tests/e2e/`) of the real UI. It checks an HTML-injection description renders as text and the injected script never runs, a cross-tenant 404, and no JS or CSP errors.
 - **A manual end-to-end curl walkthrough before writing HTTP tests.** It found three bugs the tests had missed ("Fourth instance").
 - **Small misses caught in step 3:**

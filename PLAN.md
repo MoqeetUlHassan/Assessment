@@ -1,6 +1,6 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **v3.2.** Steps 1–5 built, plus the step-8 client for the existing APIs (built early, on request). The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
+Status: **v3.2.** Steps 1–6 built, plus the step-8 client for the existing APIs (built early, on request). The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
 
 ---
 
@@ -250,11 +250,13 @@ ActualCost revision:
 | GET | `/api/requests/{id}/history` | authenticated | revisions + audit events |
 | GET | `/api/reports/spend?from=&to=` | `reports.spend` | |
 | GET / POST | `/api/admin/users` | `admin.users` | create: `{ displayName, email, password, roleId }` |
-| PUT | `/api/admin/users/{id}` | `admin.users` | role, active, password reset |
+| PUT | `/api/admin/users/{id}/role` | `admin.users` | not yourself |
+| POST | `/api/admin/users/{id}/deactivate` · `/reactivate` · `/password` | `admin.users` | separate endpoints, each audited |
 | GET / POST | `/api/admin/roles` | `admin.roles` | create role with permissions |
 | PUT | `/api/admin/roles/{id}/permissions` | `admin.roles` | non-admin roles only |
 | GET | `/api/admin/permissions` | `admin.roles` | the catalog |
 | PUT | `/api/admin/settings/threshold` | `admin.settings` | `{ amount, reason }` |
+| GET | `/api/admin/audit` | `admin.users` | organization-wide audit log |
 
 **Spend report:**
 - Sum of `actual_cost` for **Completed** requests, by `completed_at`.

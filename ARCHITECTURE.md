@@ -69,9 +69,9 @@ src/Assessment.Api/
 │   ├── Auth/        ✅ login · logout · me
 │   ├── Requests/    ✅ create · list · get · edit · complete · approve · reject · history
 │   ├── Sites/       ✅ list
-│   ├── Admin/       🔜 users · roles · threshold
+│   ├── Admin/       ✅ users · roles · permissions · threshold · org audit log
 │   └── Reports/     🔜 spend by site
-└── wwwroot/                          ✅ static client (login, list, create, detail + decide/edit/complete, audit) · 🔜 admin panel, report
+└── wwwroot/                          ✅ static client (login, list, create, detail + decide/edit/complete, audit, admin panel) · 🔜 report
 
 tests/Assessment.Api.Tests/
 ├── Domain/          ✅ transition table (every state × action), approval rules, revisions, audit, roles

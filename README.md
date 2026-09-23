@@ -34,7 +34,7 @@ docker compose up -d db
 dotnet run --project src/Assessment.Api --launch-profile http
 ```
 
-Then open **http://localhost:5183** and sign in with a seeded account (below). The minimal UI covers login, the request list (filter and paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail. The admin panel and spend report arrive with those features.
+Then open **http://localhost:5183** and sign in with a seeded account (below). The minimal UI covers login, the request list (filter and paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail. Sign in as `admin@acme.test` to reach the **Admin** page: threshold, users, roles and permissions, and the organization audit log. The spend report arrives with that feature.
 
 Check it's up:
 
@@ -98,6 +98,15 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 | POST | `/api/requests/{id}/approve` | `requests.approve`, not your request/revision | `{ revisionId, comment? }` |
 | POST | `/api/requests/{id}/reject` | `requests.approve`, not your request/revision | `{ revisionId, reason }` |
 | GET | `/api/requests/{id}/history` | session | revisions + audit events with actor names |
+| GET / POST | `/api/admin/users` | `admin.users` | list / create `{ displayName, email, password, roleId }` |
+| PUT | `/api/admin/users/{id}/role` | `admin.users` | `{ roleId }`; not yourself |
+| POST | `/api/admin/users/{id}/deactivate` · `/reactivate` | `admin.users` | not yourself; ends their sessions |
+| POST | `/api/admin/users/{id}/password` | `admin.users` | `{ password }` (≥ 12); ends their sessions |
+| GET / POST | `/api/admin/roles` | `admin.roles` | list / create `{ name, permissions[] }` |
+| PUT | `/api/admin/roles/{id}/permissions` | `admin.roles` | `admin.*` can't be granted; OrgAdmin role locked |
+| GET | `/api/admin/permissions` | `admin.roles` | the permission catalog |
+| PUT | `/api/admin/settings/threshold` | `admin.settings` | `{ amount, reason }`; applies to new requests only |
+| GET | `/api/admin/audit?entityType=&page=` | `admin.users` | organization-wide audit log |
 
 Errors are `application/problem+json`:
 
@@ -149,6 +158,8 @@ To point the tests at a different server, set `TEST_CONNECTION_STRING`.
 dotnet run --project src/Assessment.Api --launch-profile http   # in one terminal
 cd tests/e2e && npm install && node browser-smoke.js            # in another
 ```
+
+It signs in about 8 times, and the login rate limit is 10 per minute per IP, so allow a minute between runs. It runs against your dev database: it restores the threshold it changes, but it leaves one test user and some audit rows behind.
 
 ## Database migrations
 
