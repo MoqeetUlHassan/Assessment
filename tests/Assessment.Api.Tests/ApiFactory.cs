@@ -19,5 +19,7 @@ public class ApiFactory : WebApplicationFactory<Program>
         builder.UseEnvironment("Development");
         builder.UseSetting("ConnectionStrings:Default", ConnectionString);
         builder.UseSetting("Database:MigrateOnStartup", "true");
+        // Tests share one client IP; the real limit is exercised by a dedicated test with its own factory.
+        builder.UseSetting("RateLimiting:LoginPermitsPerMinute", "1000");
     }
 }
