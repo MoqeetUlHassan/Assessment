@@ -26,6 +26,13 @@ public sealed class TenantContext
         UserId = userId;
     }
 
+    /// <summary>Drops the tenant, e.g. when a session turns out to be invalid mid-request.</summary>
+    public void Clear()
+    {
+        OrganizationId = null;
+        UserId = null;
+    }
+
     /// <summary>Marks this scope as a trusted system process (seeding). Never reachable from an HTTP request.</summary>
     public void UseSystemScope()
     {

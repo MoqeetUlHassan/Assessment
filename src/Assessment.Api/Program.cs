@@ -1,5 +1,12 @@
+using System.Threading.RateLimiting;
+using Assessment.Api.Authorization;
+using Assessment.Api.Domain;
+using Assessment.Api.Features.Auth;
 using Assessment.Api.Infrastructure.Data;
 using Assessment.Api.Infrastructure.Tenancy;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -8,6 +15,7 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException(
         "Connection string 'ConnectionStrings:Default' is missing. See README.md.");
 
+// --- Data ---
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<TenantContext>();
 builder.Services.AddScoped<AuditEventInterceptor>();
@@ -21,6 +29,42 @@ builder.Services.AddDbContext<AppDbContext>((sp, options) => options
         sp.GetRequiredService<AuditEventInterceptor>(),
         sp.GetRequiredService<TenantGuardInterceptor>(),
         sp.GetRequiredService<EntityStampingInterceptor>()));
+
+// --- Authentication: HttpOnly session cookie; API-style 401/403 instead of redirects ---
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.Cookie.Name = "mr_session";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Strict; // with JSON-only mutations and no CORS: CSRF defence
+        // Development runs over plain HTTP (no dev-cert step for reviewers); everywhere else is HTTPS-only.
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+            ? CookieSecurePolicy.SameAsRequest
+            : CookieSecurePolicy.Always;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+        options.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
+        options.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
+    });
+builder.Services.AddSingleton<IPasswordHasher<User>, PasswordHasher<User>>();
+
+// --- Authorization: permission policies + resource handlers, fed by CurrentUser (loaded per request) ---
+builder.Services.AddScoped<CurrentUser>();
+builder.Services.AddScoped<IAuthorizationHandler, PermissionHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, MaintenanceRequestAuthorizationHandler>();
+builder.Services.AddAuthorizationBuilder().AddPermissionPolicies();
+
+// --- Rate limiting: login attempts per client IP ---
+var loginPermits = builder.Configuration.GetValue("RateLimiting:LoginPermitsPerMinute", 10);
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(LoginEndpoint.RateLimitPolicy, http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions { PermitLimit = loginPermits, Window = TimeSpan.FromMinutes(1) }));
+});
+
+builder.Services.AddValidation();
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database");
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
@@ -35,8 +79,17 @@ if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
     await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
 }
 
+if (app.Configuration.GetValue<bool>("Seed:DevelopmentData"))
+{
+    await DevelopmentSeeder.SeedAsync(app.Services);
+}
+
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseRateLimiter();
+app.UseAuthentication();
+app.UseMiddleware<SessionValidationMiddleware>(); // tenant + fresh user/permissions, before any authorization
+app.UseAuthorization();
 
 if (app.Environment.IsDevelopment())
 {
@@ -44,6 +97,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapHealthChecks("/health");
+app.MapLogin();
+app.MapSession();
 
 app.Run();
 
