@@ -76,6 +76,14 @@ async function session(browser, email) {
     check('detail: requester sees no Approve button', (await requester.page.locator('button', { hasText: 'Approve' }).count()) === 0);
     check('detail: requester told why they cannot decide', (await requester.page.textContent('.pending')).includes("can't decide"));
 
+    // Requester edits the pending request with a reason (supersedes the pending revision).
+    await requester.page.fill('section:has(h2:has-text("Edit")) input[name=estimatedCost]', '16000');
+    await requester.page.fill('section:has(h2:has-text("Edit")) input[name=reason]', 'Vendor quote updated');
+    await requester.page.click('button:has-text("Save changes")');
+    await requester.page.waitForSelector('p.ok:has-text("Saved.")');
+    check('edit: the reason is shown in the Revisions table',
+      (await requester.page.textContent('section:has(h2:has-text("Revisions")) tbody')).includes('Vendor quote updated'));
+
     // Approver approves.
     const approver = await session(browser, 'approver1@acme.test');
     await approver.page.goto(requestUrl);
@@ -83,6 +91,8 @@ async function session(browser, email) {
     await approver.page.click('button:has-text("Approve")');
     await approver.page.waitForSelector('p.ok');
     check('approve: status becomes Approved', (await approver.page.textContent('dd.status')) === 'Approved');
+    check('approve: the approver comment is shown as the decision note',
+      (await approver.page.textContent('section:has(h2:has-text("Revisions")) tbody')).includes('Looks right'));
 
     // Requester records the actual cost (≥ threshold → needs approval again).
     await requester.page.reload();
@@ -103,7 +113,9 @@ async function session(browser, email) {
 
     const auditRows = await approver.page.locator('section:has(h2:has-text("Audit trail")) tbody tr').count();
     const auditText = await approver.page.textContent('section:has(h2:has-text("Audit trail")) tbody');
-    check('audit trail lists every step', auditRows === 6 && auditText.includes('Alex Approver') && auditText.includes('Riley Requester'), `rows=${auditRows}`);
+    // Raised, Submitted, Edited, Superseded, Submitted, Approved, ActualCostSubmitted, Submitted, Approved
+    check('audit trail lists every step', auditRows === 9 && auditText.includes('Alex Approver') && auditText.includes('Riley Requester')
+      && auditText.includes('Vendor quote updated'), `rows=${auditRows}`);
 
     // Other tenant: Globex approver opens the Acme request URL.
     const globex = await session(browser, 'approver1@globex.test');
