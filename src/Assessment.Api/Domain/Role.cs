@@ -24,6 +24,7 @@ public class Role : Entity, ITenantOwned
         _permissions = [.. Domain.Permissions.All.Order()],
     };
 
+    /// <summary>Creates a role without an audit record (seeding, tests). Admin creation uses <see cref="CreateByAdmin"/>.</summary>
     public static Role Create(Guid organizationId, string name, IEnumerable<string> permissions)
     {
         var trimmed = name?.Trim();
@@ -35,13 +36,28 @@ public class Role : Entity, ITenantOwned
         return new Role { OrganizationId = organizationId, Name = trimmed, _permissions = Validate(permissions) };
     }
 
-    /// <returns>The permissions before the change, for the audit record.</returns>
+    public static Role CreateByAdmin(Guid organizationId, string name, IEnumerable<string> permissions, Guid actorId, DateTimeOffset now)
+    {
+        var role = Create(organizationId, name, permissions);
+        role.Audit(AuditActions.RoleCreated, actorId, now, new() { ["name"] = role.Name, ["permissions"] = role._permissions.ToArray() });
+        return role;
+    }
+
+    /// <returns>The permissions before the change.</returns>
     public IReadOnlyList<string> SetPermissions(IEnumerable<string> permissions)
     {
         if (IsSystemAdmin) throw new DomainException("The OrgAdmin role cannot be edited.");
         var before = _permissions;
         _permissions = Validate(permissions);
         return before;
+    }
+
+    public void ChangePermissions(IEnumerable<string> permissions, Guid actorId, DateTimeOffset now)
+    {
+        var before = SetPermissions(permissions);
+        if (before.SequenceEqual(_permissions)) throw new DomainException("Permissions are unchanged.");
+        Audit(AuditActions.RolePermissionsChanged, actorId, now, new()
+            { ["role"] = Name, ["before"] = before.ToArray(), ["after"] = _permissions.ToArray() });
     }
 
     private static List<string> Validate(IEnumerable<string> permissions)
@@ -53,4 +69,7 @@ public class Role : Entity, ITenantOwned
             throw new DomainException("Admin permissions can only be held by the OrgAdmin role.");
         return [.. set.Order()];
     }
+
+    private void Audit(string action, Guid actorId, DateTimeOffset now, Dictionary<string, object?> details) =>
+        RaiseAudit(AuditEvent.Create(OrganizationId, nameof(Role), Id, action, actorId, now, details));
 }

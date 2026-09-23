@@ -67,14 +67,16 @@ const App = (() => {
       type: 'button', text: 'Log out',
       onclick: async () => { await api('POST', '/api/auth/logout'); location.href = '/index.html'; },
     });
-    header.replaceChildren(
+    // replaceChildren() would print a null as the text "null", so optional items are filtered out first.
+    header.replaceChildren(...[
       el('strong', { text: me.organization.name }),
       el('span', { class: 'muted', text: `Approval threshold: ${money(me.organization.approvalThreshold)}` }),
       el('a', { href: '/requests.html', text: 'Requests' }),
+      me.permissions.some(p => p.startsWith('admin.')) ? el('a', { href: '/admin.html', text: 'Admin' }) : null,
       el('span', { class: 'spacer' }),
       el('span', { text: `${me.displayName} (${me.role})` }),
       logout,
-    );
+    ].filter(Boolean));
   }
 
   function numberOrNull(value) {

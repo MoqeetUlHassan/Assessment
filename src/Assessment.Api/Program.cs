@@ -1,6 +1,7 @@
 using System.Threading.RateLimiting;
 using Assessment.Api.Authorization;
 using Assessment.Api.Domain;
+using Assessment.Api.Features.Admin;
 using Assessment.Api.Features.Auth;
 using Assessment.Api.Features.Requests;
 using Assessment.Api.Features.Sites;
@@ -123,6 +124,7 @@ app.MapLogin();
 app.MapSession();
 app.MapSites();
 app.MapRequests();
+app.MapAdmin();
 
 app.Run();
 
