@@ -1,0 +1,21 @@
+# Postgres for local development and reviewers without a local install.
+# Credentials match appsettings.Development.json.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: assessment
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d assessment"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

@@ -1,6 +1,3 @@
 @Assessment.Api_HostAddress = http://localhost:5183
 
-GET {{Assessment.Api_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
+GET {{Assessment.Api_HostAddress}}/health
