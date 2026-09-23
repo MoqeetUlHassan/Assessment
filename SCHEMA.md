@@ -178,7 +178,7 @@ CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events
 | Index | Columns | Serves |
 |---|---|---|
 | `ix_maintenance_requests_organization_id_status_created_at` | `(organization_id, status, created_at DESC)` | Request list and approval queue, newest first |
-| `ix_maintenance_requests_spend_report` | `(organization_id, site_id, completed_at) INCLUDE (actual_cost) WHERE status = 'Completed'` | Spend report: partial (only completed rows) and covering (no heap lookup for the amount) |
+| `ix_maintenance_requests_spend_report` | `(organization_id, site_id, completed_at) INCLUDE (actual_cost) WHERE status = 'Completed'` | Spend report: partial (only completed rows) and covering (no heap lookup for the amount). **Verified** with `EXPLAIN` on the SQL EF actually generates: Index Only Scan. |
 | `ix_request_revisions_request_id_sequence` (unique) | `(request_id, sequence)` | Loading a request's revisions in order |
 | `ux_request_revisions_one_pending` (unique, partial) | `(request_id) WHERE outcome = 'Pending'` | The invariant, plus the pending lookup |
 | `ix_audit_events_organization_id_entity_id_created_at` | `(organization_id, entity_id, created_at)` | A request's history timeline |
@@ -196,7 +196,7 @@ EF also creates an index for each FK, e.g. `(site_id, organization_id)`. Nothing
 | Pending revision | `request_revisions WHERE outcome = 'Pending'` (at most one, guaranteed by index) | Avoids a circular FK between requests and revisions |
 | Last approved content | The latest `Initial`/`Edit` revision with outcome `Approved` or `AutoApproved` | Same reason; one source of truth |
 | Who approved / when | `request_revisions.decided_by_id`, `decided_at` + `audit_events` | The history is the record |
-| Spend per site | `SUM(actual_cost)` over completed requests, grouped by site (step 7) | Aggregates are computed at query time; there's no denormalised total to drift |
+| Spend per site | `SUM(actual_cost)` over completed requests, per site | Aggregates are computed at query time; there's no denormalised total to drift |
 
 ---
 

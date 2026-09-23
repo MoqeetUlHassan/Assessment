@@ -70,14 +70,14 @@ src/Assessment.Api/
 │   ├── Requests/    ✅ create · list · get · edit · complete · approve · reject · history
 │   ├── Sites/       ✅ list
 │   ├── Admin/       ✅ users · roles · permissions · threshold · org audit log
-│   └── Reports/     🔜 spend by site
-└── wwwroot/                          ✅ static client (login, list, create, detail + decide/edit/complete, audit, admin panel) · 🔜 report
+│   └── Reports/     ✅ spend by site
+└── wwwroot/                          ✅ static client (login, list, create, detail + decide/edit/complete, audit, spend report, admin panel)
 
 tests/Assessment.Api.Tests/
 ├── Domain/          ✅ transition table (every state × action), approval rules, revisions, audit, roles
 ├── Persistence/     ✅ DB guarantees, cross-tenant reads/writes by real id, fail-closed, model conventions
 ├── Authorization/   ✅ CanDecide / CanModify matrix incl. OrgAdmin and cross-org
-└── Http/            ✅ login, sessions, revocation, rate limit, seed accounts, request lifecycle, authz + cross-tenant on every endpoint · 🔜 report
+└── Http/            ✅ login, sessions, revocation, rate limit, seed accounts, request lifecycle, authz + cross-tenant on every endpoint, admin, spend report (hand-computed fixture)
 ```
 
 **Dependency rule:** `Domain` depends on nothing. `Infrastructure` depends on `Domain`. `Features` and `Authorization` depend on both. It's enforced by convention and review, not separate assemblies (see DECISIONS.md).

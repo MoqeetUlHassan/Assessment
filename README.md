@@ -34,7 +34,7 @@ docker compose up -d db
 dotnet run --project src/Assessment.Api --launch-profile http
 ```
 
-Then open **http://localhost:5183** and sign in with a seeded account (below). The minimal UI covers login, the request list (filter and paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail. Sign in as `admin@acme.test` to reach the **Admin** page: threshold, users, roles and permissions, and the organization audit log. The spend report arrives with that feature.
+Then open **http://localhost:5183** and sign in with a seeded account (below). The minimal UI covers login, the request list (filter and paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail. Sign in as `admin@acme.test` to reach the **Admin** page: threshold, users, roles and permissions, and the organization audit log. Approvers and admins also get **Spend report**: the total actual cost of completed requests per site over a date range (the current month by default).
 
 Check it's up:
 
@@ -55,7 +55,7 @@ On first start in Development, two organizations are created so you can try tena
 | Acme Retail | `requester@acme.test` | Requester | raise, edit/complete own |
 | Globex Offices | `admin@globex.test`, `approver1@globex.test`, `approver2@globex.test`, `requester@globex.test` | same roles | same, isolated from Acme |
 
-Sites: Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower, Site 12, Data Centre*. Both have a "Site 12", which is deliberate: names don't cross tenants. Seeding is off outside Development (`Seed:DevelopmentData`).
+Sites: Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower, Site 12, Data Centre*. A fresh database also gets a few demo requests in different states (completed, approved, pending approval), created through the real domain methods with genuine audit trails, so the list and this month's spend report aren't empty. Both have a "Site 12", which is deliberate: names don't cross tenants. Seeding is off outside Development (`Seed:DevelopmentData`).
 
 ### Try the API with curl
 
@@ -98,6 +98,7 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 | POST | `/api/requests/{id}/approve` | `requests.approve`, not your request/revision | `{ revisionId, comment? }` |
 | POST | `/api/requests/{id}/reject` | `requests.approve`, not your request/revision | `{ revisionId, reason }` |
 | GET | `/api/requests/{id}/history` | session | revisions + audit events with actor names |
+| GET | `/api/reports/spend?from=yyyy-MM-dd&to=yyyy-MM-dd` | `reports.spend` | spend per site, caller's org only; inclusive UTC dates, ≤ 366 days |
 | GET / POST | `/api/admin/users` | `admin.users` | list / create `{ displayName, email, password, roleId }` |
 | PUT | `/api/admin/users/{id}/role` | `admin.users` | `{ roleId }`; not yourself |
 | POST | `/api/admin/users/{id}/deactivate` · `/reactivate` | `admin.users` | not yourself; ends their sessions |

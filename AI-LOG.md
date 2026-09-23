@@ -82,6 +82,9 @@ Also noted: the first startup logs `fail: ... An error occurred using the connec
   - auth: own-revision check removed; the session middleware trusting the cookie; the own-request check removed. **That last one survived at first; see "Third instance" above.**
   - requests: aggregate touch removed; store-generated IDs; 403 instead of 404 for a foreign ID; the malformed-input mapping removed.
   - admin: self-deactivation allowed; role lookup bypassing the org filter; password-reset audit removed; admin-only permissions made grantable.
+  - report: inclusive end boundary; summing estimates; dropping the +1 day. All were caught.
+  - Removing the report's `status = 'Completed'` filter **survived, as predicted in advance.** It's an equivalent mutation, because `completed_at` is only set on completion. Rather than delete the "redundant" filter, I captured the SQL EF generates and ran `EXPLAIN`. With the filter, it's an Index Only Scan on the partial covering index; without it, an FK index plus table reads. The filter stays, for performance rather than correctness, and DECISIONS.md says so.
+- **The report SQL was captured from EF's command log.** It shows the tenant filter (`organization_id = @ef_filter__CurrentOrganizationId`) applied inside both correlated subqueries without the report code mentioning organizations. That's direct evidence that isolation layer 2 covers queries written without thinking about tenancy.
 - **A headless-browser smoke test** (installed Edge + `playwright-core`, kept in `tests/e2e/`) of the real UI. It checks an HTML-injection description renders as text and the injected script never runs, a cross-tenant 404, and no JS or CSP errors.
 - **A manual end-to-end curl walkthrough before writing HTTP tests.** It found three bugs the tests had missed ("Fourth instance").
 - **Small misses caught in step 3:**
