@@ -30,6 +30,8 @@ public sealed class EntityStampingInterceptor(TimeProvider clock, TenantContext 
         context.ChangeTracker.DetectChanges();
         var now = clock.GetUtcNow();
 
+        TouchRequestsWithChangedRevisions(context);
+
         foreach (var entry in context.ChangeTracker.Entries<Entity>())
         {
             switch (entry.State)
@@ -48,6 +50,26 @@ public sealed class EntityStampingInterceptor(TimeProvider clock, TenantContext 
                     entry.Property(e => e.CreatedById).IsModified = false;
                     break;
             }
+        }
+    }
+
+    /// <summary>
+    /// A request and its revisions change as one aggregate, but the xmin concurrency token lives on the request row.
+    /// Some operations only touch revisions (e.g. resubmitting an actual cost supersedes one revision and adds
+    /// another, leaving the request row as-is), so a concurrent approval could otherwise commit alongside them.
+    /// Marking the request modified puts its xmin check into every save that changes its revisions.
+    /// </summary>
+    private static void TouchRequestsWithChangedRevisions(DbContext context)
+    {
+        var changedRequestIds = context.ChangeTracker.Entries<RequestRevision>()
+            .Where(e => e.State is EntityState.Added or EntityState.Modified)
+            .Select(e => e.Entity.RequestId)
+            .ToHashSet();
+
+        foreach (var request in context.ChangeTracker.Entries<MaintenanceRequest>())
+        {
+            if (request.State == EntityState.Unchanged && changedRequestIds.Contains(request.Entity.Id))
+                request.Property(r => r.UpdatedAt).IsModified = true;
         }
     }
 }

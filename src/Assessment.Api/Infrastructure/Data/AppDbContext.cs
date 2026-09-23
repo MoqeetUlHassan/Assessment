@@ -28,7 +28,13 @@ public class AppDbContext(DbContextOptions<AppDbContext> options, TenantContext 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             if (typeof(Entity).IsAssignableFrom(entityType.ClrType))
+            {
                 modelBuilder.Entity(entityType.ClrType).Ignore(nameof(Entity.PendingAuditEvents));
+                // Ids are assigned by the domain (Guid v7). Without this, EF treats a NEW child with a preset key
+                // (e.g. a revision added to a loaded request) as an existing row, issues an UPDATE that matches
+                // nothing, and reports it as a concurrency conflict.
+                modelBuilder.Entity(entityType.ClrType).Property(nameof(Entity.Id)).ValueGeneratedNever();
+            }
 
             // Nothing in this schema cascades: history must never disappear as a side effect.
             foreach (var fk in entityType.GetForeignKeys())

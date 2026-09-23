@@ -2,6 +2,9 @@ using System.Threading.RateLimiting;
 using Assessment.Api.Authorization;
 using Assessment.Api.Domain;
 using Assessment.Api.Features.Auth;
+using Assessment.Api.Features.Requests;
+using Assessment.Api.Features.Sites;
+using Assessment.Api.Infrastructure;
 using Assessment.Api.Infrastructure.Data;
 using Assessment.Api.Infrastructure.Tenancy;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -67,6 +70,7 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddValidation();
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database");
 builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -99,6 +103,8 @@ if (app.Environment.IsDevelopment())
 app.MapHealthChecks("/health");
 app.MapLogin();
 app.MapSession();
+app.MapSites();
+app.MapRequests();
 
 app.Run();
 
