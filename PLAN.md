@@ -1,264 +1,337 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **DRAFT, awaiting review.** Open questions are in §10. Nothing below is built yet.
+Status: **v2, review feedback applied.** Decisions are recorded in §10. Nothing is built yet.
 
 ---
 
 ## 1. Scope
 
-**Build:** a multi-tenant JSON API covering auth, the request lifecycle, threshold-based approval, the spend report and the audit trail. Plus a minimal browser client (log in, list requests, create, approve/reject, complete).
+**Build:**
+- a multi-tenant JSON API covering auth, the request lifecycle, threshold approval, **cost revisions with re-approval**, **org threshold management (OrgAdmin)**, the spend report and a full per-request audit history;
+- a minimal static HTML + JS client.
 
-**Deliberately not building** (judgment, explained in DECISIONS.md):
+**Deliberately not building:**
 
 | Not building | Why |
 |---|---|
-| User / org / site management UI or API | Not in the brief. Seeded data covers the flows being assessed, and each admin API widens the attack surface. |
-| Self-registration | In a B2B tenant system, open sign-up means someone must be trusted to pick their own org. That's a tenant-isolation hole. |
-| Request cancellation, editing, attachments, comments | Not required. Each adds states and transitions. |
-| Multi-currency | Assume one currency per org. Amounts are `numeric(12,2)`. |
-| JWT, refresh tokens, OAuth/SSO | Cookie auth covers the same-origin client and curl (§5). |
-| Postgres Row-Level Security | Considered as a 3rd isolation layer (§4). Held back as a production hardening step. |
+| User / org / site management API | Not in the brief. Seeded data covers the assessed flows. Every admin API is more attack surface. |
+| Self-registration | Letting someone pick their own tenant is an isolation hole in B2B. |
+| Cancellation, attachments, comments | Not required. Each adds states. |
+| Multi-currency | One currency per org, `numeric(12,2)`. |
+| JWT, refresh tokens, SSO | The cookie session issued at login covers the same-origin client and curl (§5). |
+| Postgres Row-Level Security | A candidate 3rd isolation layer (§4). Kept as production hardening. |
 
 ---
 
 ## 2. Architecture
 
-A single ASP.NET Core project, organised **by feature**, with domain rules in the entity and not in endpoints:
+A single ASP.NET Core project, organised by feature:
 
 ```
 src/Assessment.Api/
-  Domain/            MaintenanceRequest (state machine), Organization, Site, User, AuditEvent, enums
+  Domain/            MaintenanceRequest (state machine), CostRevision, Organization, Site, User, AuditEvent
+  Authorization/     permission requirements + resource-based handlers (e.g. CanDecideRevision)
   Features/
     Auth/            login, logout, me
-    Requests/        create, list, get, approve, reject, complete, review-cost, history
+    Requests/        create, list, get, edit, revise-cost, complete, approve, reject, history
+    Organization/    get settings, change threshold (OrgAdmin)
     Reports/         spend-by-site
   Infrastructure/
-    Data/            AppDbContext, entity configs, migrations, seed
-    Tenancy/         ITenantContext (from claims), query filters, SaveChanges guard
+    Data/            AppDbContext, configs, migrations, seed, timestamp interceptor
+    Tenancy/         TenantContext (request-scoped), query filters, SaveChanges guard
   wwwroot/           static HTML + vanilla JS client
 ```
 
-- **Endpoints are thin.** They bind, validate, call a domain method, and save. All business rules live in `MaintenanceRequest`, so they're unit-testable without HTTP or a DB.
-- **No MediatR, AutoMapper, repository layer or state-machine library.** With 5 states, a transition table is clearer than `Stateless`. `DbContext` already acts as the unit of work and repository. MediatR and AutoMapper are commercially licensed now, and they solve problems this app doesn't have.
-- **The frontend is a pure API client** (static files, same origin, `fetch`). There's **one entry point** (the API), so authorization lives in exactly one place. Razor Pages was rejected because it would need a second set of handlers calling the same services, and a second place to get authz wrong.
+Responsibilities are split three ways:
+- **Permissions** (*who* may do something): `Authorization/`.
+- **Lifecycle rules** (*what* is legal from which state): `Domain/`.
+- **Tenant scoping** (*which data exists* for you at all): `Infrastructure/Tenancy`.
+
+Endpoints are thin: bind → validate → authorize → call a domain method → save.
+
+**Not used:** MediatR, AutoMapper, a repository layer, `Stateless`. With 5 states, a transition table is clearer than a library, `DbContext` is already the unit of work, and MediatR and AutoMapper are commercially licensed now. **The frontend only calls the API**, so there's one entry point and one place where authorization happens.
 
 ---
 
 ## 3. Data model
 
-Shared database, shared schema, and an `organization_id` column on every tenant-owned row. IDs are `Guid.CreateVersion7()`: sortable, and not enumerable. **Isolation does not rely on IDs being unguessable**; the tests use real foreign IDs.
+Shared schema, with `organization_id` on every tenant-owned row. IDs are `Guid.CreateVersion7()`. Isolation **does not** rely on IDs being unguessable.
+
+**Every table has `created_at` and `updated_at`** (`timestamptz`, UTC), set by a SaveChanges interceptor from an injected `TimeProvider` so tests control the clock. The one exception is `audit_events`, which has `created_at` only: its rows can never change (§8), so `updated_at` would be meaningless.
 
 ```
-organizations      id, name, approval_threshold numeric(12,2) CHECK >= 0, created_at
+organizations      id, name, approval_threshold numeric(12,2) NOT NULL DEFAULT 10000 CHECK >= 0,
+                   created_at, updated_at
 
-sites              id, organization_id → organizations, name
-                   UNIQUE (organization_id, name)
-                   UNIQUE (id, organization_id)            -- target for composite FKs
+sites              id, organization_id, name, created_at, updated_at
+                   UNIQUE (organization_id, name), UNIQUE (id, organization_id)
 
-users              id, organization_id → organizations, email (UNIQUE, lower-cased),
-                   display_name, password_hash, role (Requester|Approver), is_active, created_at
+users              id, organization_id, email (UNIQUE on lower(email)), display_name, password_hash,
+                   role (Requester|Approver|OrgAdmin), is_active, created_at, updated_at
                    UNIQUE (id, organization_id)
 
 maintenance_requests
-                   id, organization_id, site_id, requested_by_id,
-                   description varchar(2000), estimated_cost numeric(12,2),
+                   id, organization_id, site_id, requested_by_id, description varchar(2000),
                    status (Raised|PendingApproval|Approved|Rejected|Completed),
-                   threshold_at_submission numeric(12,2), approval_mode (Auto|Manual),
-                   decided_by_id, decided_at, decision_reason,
-                   actual_cost numeric(12,2), completed_at, completed_by_id,
-                   requires_cost_review bool, cost_reviewed_by_id, cost_reviewed_at,
-                   created_at, xmin (optimistic concurrency)
+                   estimated_cost numeric(12,2)      -- current estimate
+                   approved_amount numeric(12,2)     -- highest amount currently authorised (0 until first approval)
+                   actual_cost numeric(12,2) NULL,
+                   pending_revision_id NULL → cost_revisions,
+                   completed_at NULL, created_at, updated_at, xmin (optimistic concurrency)
                    FK (site_id, organization_id)         → sites(id, organization_id)
                    FK (requested_by_id, organization_id) → users(id, organization_id)
+                   CHECK costs >= 0
+                   CHECK (status = 'PendingApproval') = (pending_revision_id IS NOT NULL)
+                   CHECK status = 'Completed' ⇒ actual_cost, completed_at NOT NULL
+
+cost_revisions     -- every money change on a request: the initial estimate, estimate changes, the actual cost
+                   id, organization_id, request_id, kind (Initial|EstimateChange|ActualCost),
+                   previous_amount, new_amount, reason, submitted_by_id,
+                   threshold_at_submission, outcome (Pending|AutoApproved|Approved|Rejected),
+                   decided_by_id NULL, decided_at NULL, decision_comment NULL,
+                   created_at, updated_at
+                   FK (request_id, organization_id)      → maintenance_requests(id, organization_id)
+                   FK (submitted_by_id, organization_id) → users(id, organization_id)
                    FK (decided_by_id, organization_id)   → users(id, organization_id)
-                   CHECK costs >= 0; CHECK status='Completed' ⇒ actual_cost, completed_at NOT NULL
+                   CHECK decided_by_id <> submitted_by_id
 
 audit_events       id bigint identity, organization_id, entity_type, entity_id, action,
-                   from_status, to_status, actor_user_id (NULL = system), occurred_at,
-                   details jsonb   -- e.g. costs, threshold, reason
+                   from_status, to_status, actor_user_id NULL (NULL = system), details jsonb, created_at
                    TRIGGER: reject UPDATE / DELETE / TRUNCATE
 ```
 
-**Why composite FKs:** even if application code has a bug, the database refuses a request whose site or user belongs to another org. It's cheap and it's the last line of defence.
+**`cost_revisions` is the approval record.** Each row answers "who asked for this amount, who approved it (or was it automatic), when, and against which threshold". The approval history is data in its own right, not just log lines.
+
+**Composite FKs** mean the database itself refuses a request, revision or approval that points at a site or user in another org, even if the code has a bug.
 
 **Indexes, each tied to a real query:**
 - `maintenance_requests (organization_id, status, created_at DESC)`: the list and approval queue.
-- `maintenance_requests (organization_id, site_id, completed_at) INCLUDE (actual_cost) WHERE status = 'Completed'`: the spend report, a partial covering index.
-- `audit_events (organization_id, entity_id, occurred_at)`: request history.
+- `maintenance_requests (organization_id, site_id, completed_at) INCLUDE (actual_cost) WHERE status = 'Completed'`: the spend report.
+- `cost_revisions (request_id, created_at)`: revision history.
+- `audit_events (organization_id, entity_id, created_at)`: request history.
 - `users (lower(email))` unique: login.
-
-Enums are stored as **text**, so the DB and audit rows stay readable without the code. Migrations are EF Core, one per milestone. The audit trigger lives in a migration as raw SQL.
 
 ---
 
-## 4. Tenant isolation: where and why
+## 4. Tenant isolation
+
+**How the org ID is established:**
+1. On first page load there's no session, so the API returns 401 and the client shows the login form.
+2. `POST /api/auth/login` checks the credentials, **loads the user from the database** and reads *that user's* `OrganizationId` and role from their DB record.
+3. It issues an HttpOnly session cookie carrying `userId`, `orgId` and `role`.
+4. The client calls `GET /api/me` for the user details it displays.
+
+The org ID is **never** read from a URL, query string or body a client could edit.
+
+**Org-scoped data access:**
 
 | Layer | Mechanism | What it catches |
 |---|---|---|
-| 1. Identity | `OrganizationId` comes **only** from the auth cookie's claims (`ITenantContext`), never from the route, query string or body. | Callers claiming a different tenant. |
-| 2. Reads | **EF Core global query filter** on every tenant entity: `e.OrganizationId == tenant.OrganizationId`. | A forgotten `.Where(...)`. Every query is scoped by default, so a foreign ID returns **404** (not 403, which would leak that it exists). |
-| 3. Writes | A `SaveChanges` guard stamps `OrganizationId` on new entities and **throws** if any tracked entity's org ≠ the current tenant. | Code that loads or attaches something it shouldn't. |
+| 1. Request scope | A request-scoped `TenantContext` is populated from the authenticated user. All data access goes through it. | Callers claiming another tenant. |
+| 2. Reads | An **EF Core global query filter** on every tenant entity (`OrganizationId == TenantContext.OrganizationId`). Every query is org-locked automatically. | A forgotten `.Where(...)`. A foreign ID simply doesn't exist, so the API returns **404** (not 403, which would leak that it exists). |
+| 3. Writes | A SaveChanges guard stamps `OrganizationId` on inserts and **throws** if any tracked entity belongs to another org. | Code attaching or modifying foreign data. |
 | 4. Database | Composite FKs (§3). | Cross-tenant references from bugs in the layers above. |
 
-**Why the data layer and not endpoints/controllers:** checks written per endpoint get forgotten on the 12th endpoint. A query filter is on by default and needs a deliberate `IgnoreQueryFilters()` to switch off. That appears in exactly **one** place (login, which must find a user by email before a tenant is known). A test enforces that it's the only occurrence.
-
-**Rejected: Postgres RLS.** It's the strongest option, but it needs a `SET app.org_id` per transaction on pooled connections and separate DB roles for migrations vs the app, and it makes local setup harder. I'd add it in production as defence in depth; it's noted in DECISIONS.md.
+**Why at the data layer:** a check written per endpoint gets forgotten eventually, while a query filter is on by default. The only bypass, `IgnoreQueryFilters()`, is allowed in exactly one place (login's email lookup, before a tenant is known). A test enforces that.
 
 ---
 
-## 5. Authentication & authorization
+## 5. Authentication & permissions
 
-- **Cookie auth** (ASP.NET Core cookie handler) with our own `users` table. Passwords are hashed with Identity's `PasswordHasher<T>` (PBKDF2, versioned) without pulling in Identity's 7-table schema.
-  - Cookie settings: `HttpOnly`, `Secure`, `SameSite=Strict`, 8h sliding expiry.
-  - Every 5 minutes the principal is revalidated against the DB. Deactivating a user or changing their role takes effect without waiting for the cookie to expire.
-- **CSRF:** `SameSite=Strict` plus mutations that only accept `application/json`, which a cross-site HTML form can't send without a CORS preflight, and CORS isn't enabled.
-- **Rejected JWT:** there's no clean revocation, token storage in the browser is a liability, and there's no second client that needs it.
-- **Login hardening:** the same generic error for an unknown email and a wrong password; a fixed-window rate limit on `/api/auth/login` (built-in `RateLimiter`); failed logins are logged.
-- **Authorization, in two layers:**
-  1. **Endpoint policies** give coarse role checks, e.g. `RequireRole("Approver")` on approve/reject/review-cost and on the report. These return 403.
-  2. **Domain rules** cover facts that need the entity loaded: "an Approver cannot decide their own request", "only the requester or an Approver can complete". These are enforced inside `MaintenanceRequest`, so no entry point can skip them.
+**Session:**
+- Cookie auth against our own `users` table. Passwords are hashed with Identity's `PasswordHasher<T>` (PBKDF2), without Identity's 7-table schema.
+- The cookie is `HttpOnly`, `Secure` and `SameSite=Strict`, with an 8h sliding expiry.
+- The user is **revalidated against the DB every 5 minutes**, so a deactivation or role change takes effect without waiting for the cookie to expire.
+- **CSRF:** SameSite=Strict, JSON-only mutations, and no CORS.
+- **Login:** a generic error message, a rate limit on the endpoint, and failures are logged.
+- **Rejected JWT:** revocation is hard, token storage in the browser is a risk, and there's no second client that needs it.
 
-**Permissions matrix** (assumptions marked *):
+**Permissions are enforced as ASP.NET Core authorization, never in the UI:**
+- **Role policies** at the endpoint handle "is this an Approver / OrgAdmin" and return 403.
+- **Resource-based authorization handlers** handle rules that need the loaded record. `CanDecideRevision` checks:
+  - the caller is an **Approver**;
+  - the caller is **not the request's creator**;
+  - the caller is **not the submitter of the revision being decided**;
+  - the request is in the caller's org (already guaranteed by §4; asserted again anyway).
 
-| Action | Requester | Approver |
-|---|---|---|
-| Raise a request | ✅ | ✅ * |
-| List / view requests | own only * | all in org |
-| Approve / reject | ❌ | ✅ if not their own |
-| Complete (record actual cost) | own only | ✅ |
-| Acknowledge a cost overrun | ❌ | ✅ if not their own |
-| Spend report | ❌ * | ✅ |
-| View audit history | own requests | all in org |
+  Failing any of these returns **403**. So "you can't approve your own request" is a **permission**, just as you asked, and the domain entity handles only state legality.
+
+| Action | Requester | Approver | OrgAdmin |
+|---|---|---|---|
+| Raise a request | ✅ | ✅ | ❌ |
+| List / view requests + history (whole org) | ✅ | ✅ | ✅ |
+| Edit description (not while pending approval) | ✅ | ✅ | ❌ |
+| Revise estimate / record actual cost | ✅ | ✅ | ❌ |
+| Approve / reject a pending revision | ❌ | ✅ if not requester and not revision submitter | ❌ |
+| Spend report | ❌ | ✅ | ❌ |
+| View / change the org threshold | view | view | ✅ change |
+
+OrgAdmin is **deliberately separate** from Approver (separation of duties). Whoever can raise the threshold can't approve requests or raise them.
 
 ---
 
-## 6. Request lifecycle
+## 6. Request lifecycle & approval rules
+
+**One rule decides whether any money change needs approval:**
 
 ```
-            est < threshold (system)
-  Raised ───────────────────────────► Approved ──complete(actual)──► Completed
-    │                                    ▲                              (terminal)
-    │ est >= threshold (system)          │ approve (Approver ≠ requester)
-    └──────────────► PendingApproval ────┤
-                                         └─ reject(reason) ──► Rejected (terminal)
+needsApproval = newAmount >= threshold  AND  newAmount > approvedAmount
 ```
 
-- **Raised is a real, audited state, but transient.** `POST /requests` creates the request and routes it in one transaction, producing two audit events: `Raised`, then `AutoApproved` or `SubmittedForApproval`. This means the frontend doesn't need a separate "submit" step.
-- **Threshold:** a cost **equal to** the threshold requires approval (the brief is silent on this; I took the conservative reading). The threshold is **snapshotted** onto the request, so changing it later doesn't rewrite history.
-- **Enforcement:** a single transition table in the domain. Any other `(state, action)` pair throws `InvalidTransition` and returns **409**. Concurrent decisions on the same request are caught by `xmin` optimistic concurrency, so the second writer gets 409.
+- The **initial estimate** starts with `approvedAmount = 0`, so it needs approval exactly when it's at or above the threshold (an amount *equal* to the threshold requires approval).
+- **An increase** needs a fresh approval whenever the new total reaches or passes the threshold, even if the request was approved before (e.g. approved at 12k, raised to 13k → approve again).
+- **An increase that stays under the threshold, or any decrease**, is auto-approved and recorded as such.
+- **The actual cost** is treated the same way. If it exceeds what was authorised *and* is at or above the threshold, **completion is blocked** until an Approver signs off.
+- The threshold in force at the time is **snapshotted onto each revision**, so a later threshold change never rewrites past decisions.
+- **Any one eligible Approver** can approve or reject.
 
-**Cost overrun (the brief's open choice).** A request's *authorised ceiling* is:
-- the **threshold** if it was auto-approved (anything under it needed no sign-off), or
-- the **approved estimate** if an Approver signed it off.
+**State transitions.** Anything not listed returns **409**.
 
-On `complete`, if `actual_cost` exceeds the ceiling:
-- the request still becomes **Completed** (the money is already spent, so blocking completion would only hide it);
-- it gets `requires_cost_review = true` and a `CostOverrunFlagged` audit event;
-- an Approver other than the requester must **acknowledge** it (`CostReviewed` audit event);
-- the spend report counts it (spend is spend) and returns a count of unreviewed overruns per site.
+| From | Action | Condition | To |
+|---|---|---|---|
+| — | create | — | Raised (transient, audited) |
+| Raised | route (system) | initial estimate needs no approval | Approved (revision AutoApproved) |
+| Raised | route (system) | needs approval | PendingApproval (Initial) |
+| PendingApproval (Initial) | approve / reject | CanDecideRevision | Approved / **Rejected** (terminal) |
+| Approved | revise estimate | no approval needed | Approved (revision AutoApproved) |
+| Approved | revise estimate | needs approval | PendingApproval (EstimateChange) |
+| PendingApproval (EstimateChange) | approve / reject | CanDecideRevision | Approved (new amount) / Approved (old amount kept) |
+| Approved | complete with actual | no approval needed | **Completed** (terminal) |
+| Approved | complete with actual | needs approval | PendingApproval (ActualCost): **completion blocked** |
+| PendingApproval (ActualCost) | approve / reject | CanDecideRevision | Completed / Approved (actual cleared, resubmit) |
 
-*Rejected: a `PendingCostApproval` state that blocks completion.* "Rejecting" work that has already been paid for doesn't mean anything. It also closes the loophole this rule is really for: someone who **under-estimates to skip approval** gets flagged, and the flag is attached to their name.
+- **Only one pending revision at a time.** No edits or revisions are allowed while PendingApproval, so the Approver always decides on content that can't change under them.
+- Approve/reject calls must include the **`revisionId`** the Approver was looking at. A stale ID returns 409, so nobody approves an amount they didn't see.
+- Concurrent decisions are caught by `xmin`: the second writer gets 409.
+- If an org has no eligible Approver (e.g. the only Approver raised the request), the request **stays PendingApproval**. It's never auto-approved. The API response says so.
 
 ---
 
 ## 7. API
 
-| Method | Route | Notes |
-|---|---|---|
-| POST | `/api/auth/login` · `/api/auth/logout` | |
-| GET | `/api/me` | user, role, org, threshold |
-| GET | `/api/sites` | for the create form |
-| GET | `/api/requests?status=&siteId=&page=` | paged, scoped per §5 |
-| POST | `/api/requests` | `{ siteId, description, estimatedCost }` |
-| GET | `/api/requests/{id}` | |
-| POST | `/api/requests/{id}/approve` | `{ comment? }` |
-| POST | `/api/requests/{id}/reject` | `{ reason }` (required) |
-| POST | `/api/requests/{id}/complete` | `{ actualCost }` |
-| POST | `/api/requests/{id}/cost-review` | acknowledge an overrun |
-| GET | `/api/requests/{id}/history` | audit events |
-| GET | `/api/reports/spend?from=2026-08-01&to=2026-08-31` | |
+| Method | Route | Who | Notes |
+|---|---|---|---|
+| POST | `/api/auth/login` · `/api/auth/logout` | anyone | login returns the user + org |
+| GET | `/api/me` | authenticated | user, role, org, threshold |
+| GET | `/api/sites` | authenticated | |
+| GET | `/api/requests?status=&siteId=&page=` | authenticated | whole org, paged |
+| POST | `/api/requests` | Requester, Approver | `{ siteId, description, estimatedCost }` |
+| GET | `/api/requests/{id}` | authenticated | includes the pending revision |
+| PATCH | `/api/requests/{id}` | Requester, Approver | `{ description }`; not while pending |
+| POST | `/api/requests/{id}/cost-revisions` | Requester, Approver | `{ newEstimate, reason }` |
+| POST | `/api/requests/{id}/complete` | Requester, Approver | `{ actualCost, reason? }` |
+| POST | `/api/requests/{id}/approve` | Approver + CanDecideRevision | `{ revisionId, comment? }` |
+| POST | `/api/requests/{id}/reject` | Approver + CanDecideRevision | `{ revisionId, reason }` (required) |
+| GET | `/api/requests/{id}/history` | authenticated | audit events + revisions |
+| GET | `/api/organization` | authenticated | name, threshold |
+| PUT | `/api/organization/threshold` | OrgAdmin | `{ amount, reason }` |
+| GET | `/api/reports/spend?from=&to=` | Approver | |
 
-**Spend report semantics:**
-- Spend = sum of `actual_cost` of **Completed** requests, bucketed by `completed_at`.
-- `from`/`to` are **inclusive dates in UTC**.
-- Every site in the org is returned, including sites with zero spend. Response per site: `siteId, siteName, totalSpend, completedCount, unreviewedOverrunCount`.
-- It's a single grouped SQL query (`LEFT JOIN` sites), not an in-memory aggregation.
+**Spend report:**
+- Sum of `actual_cost` for **Completed** requests, bucketed by `completed_at`.
+- `from`/`to` are **inclusive UTC dates**.
+- **Every site** in the org is returned, including sites with zero spend: `siteId, siteName, totalSpend, completedCount`.
+- It's one grouped SQL query with a `LEFT JOIN` from sites.
 
-**Errors** are `ProblemDetails` everywhere: 400 validation, 401 unauthenticated, 403 wrong role or own request, 404 not found / other tenant, 409 illegal transition / concurrency.
+**Errors:** `ProblemDetails`. 400 validation · 401 · 403 permission · 404 missing or other tenant · 409 illegal transition, stale revision or concurrency.
 
 ---
 
-## 8. Validation, audit integrity, secrets
+## 8. Audit trail (compliance)
 
-**Input validation at the boundary** uses .NET 10's built-in minimal-API validation (DataAnnotations), with no FluentValidation dependency:
-- description 1–2000 chars, trimmed;
-- costs > 0 and ≤ 10,000,000 with at most 2 decimals;
-- `from ≤ to` and a range ≤ 366 days;
-- page size capped;
-- request body size limit.
+**Every** state change and money decision writes an `audit_events` row **in the same transaction** as the change itself. They are produced by the domain methods, so no code path can change state without also writing the audit row.
 
-The domain re-checks the invariants. EF parameterises all SQL. The frontend renders only via `textContent` (never `innerHTML`), with a CSP of `default-src 'self'`.
+The per-request history answers who / what / when for:
 
-**Audit integrity: who can modify it?**
+| Event | Actor | Details |
+|---|---|---|
+| `Raised` | requester | site, description, estimate |
+| `AutoApproved` | **system** | amount, threshold snapshot, `triggeredBy` user |
+| `SubmittedForApproval` | submitter | revision kind, amount, threshold |
+| `Approved` / `Rejected` | approver | revision id, amount, comment / reason |
+| `DescriptionEdited` | editor | before / after |
+| `CostRevisionSubmitted` | editor | old → new, reason |
+| `ActualCostSubmitted` | submitter | actual vs authorised |
+| `Completed` | submitter or approver | final actual |
+| `ThresholdChanged` (org-level) | OrgAdmin | old → new, reason |
+
+**Integrity: who can modify the audit trail?**
 - **Through the app, nobody.** There's no update/delete code path and no endpoint.
-- **Atomicity:** audit rows are produced by the domain methods and saved in the **same transaction** as the state change. A state change can't be persisted without its audit row, or the reverse.
-- **At the database:** a trigger raises on `UPDATE`, `DELETE` and `TRUNCATE` of `audit_events`, even when the app's DB user sends them. An integration test proves this with raw SQL.
-- **In production:** the app connects as a role with only `INSERT, SELECT` on `audit_events`, and the table owner is a separate migration role. Events are streamed to append-only / WORM storage so that even a DBA can't rewrite history unnoticed. A per-org hash chain was considered for tamper *evidence*; it's listed as next step, not built.
+- **At the DB:** a trigger rejects `UPDATE`, `DELETE` and `TRUNCATE` on `audit_events`, even from the app's own DB user. A raw-SQL test proves this.
+- **In production:** the app connects as a role granted only `INSERT, SELECT` on `audit_events`, and a separate migration role owns the table. Events are also shipped to append-only / WORM storage, so a DBA can't rewrite history unnoticed. A per-org hash chain for tamper evidence is a noted next step.
+
+**Validation at the boundary** uses .NET 10's built-in minimal-API validation:
+- description 1–2000 chars;
+- amounts > 0, ≤ 10,000,000, at most 2 decimals;
+- a reason is required for rejections, threshold changes and revisions;
+- report range `from ≤ to` and ≤ 366 days;
+- capped page size and body size.
+
+The domain re-checks invariants. EF parameterises SQL. The client renders with `textContent` only, under a CSP of `default-src 'self'`.
 
 **Secrets:**
-
-| | Local | Production |
-|---|---|---|
-| DB credentials | `appsettings.Development.json` (throwaway local `postgres/postgres`), overridable via user-secrets or env var | Secret manager (Azure Key Vault / AWS Secrets Manager) injected as env vars, or managed identity; nothing in config files |
-| Cookie-signing keys | Data Protection default key ring in the user profile | Persisted to shared storage and encrypted with a KMS key, so keys survive restarts and are shared across instances |
-| Seed users | Dev-only passwords documented in the README; seeding runs **only** in Development | No seeding. Real users are provisioned. |
-
-Nothing sensitive is committed. That's checked before each push.
+- **Locally:** a throwaway `postgres/postgres` in `appsettings.Development.json`, overridable via user-secrets or env var. The Data Protection key ring lives in the user profile. Dev seed passwords are listed in the README, and seeding runs **only** in Development.
+- **In production:**
+  - the connection string comes from a secret manager (Key Vault / Secrets Manager) or a managed identity;
+  - Data Protection keys are persisted to shared storage and encrypted with a KMS key;
+  - there's no seeding.
 
 ---
 
-## 9. Testing: what, and why those
+## 9. Tests: what and why
 
-Tests run against real Postgres. **Each test creates its own fresh orgs**, so tests are isolated from each other with no cleanup library needed.
+Tests run against real Postgres. Each test creates its own orgs, so tests stay isolated without a cleanup library.
 
-| Test | Why this one |
+| Test | Why |
 |---|---|
-| **Transition table**: a theory over every `(state × action)` pair, where legal ones succeed and all others throw | The brief explicitly says "enforce that". This covers the *whole* table, not a few happy paths. |
-| **Threshold boundary**: below / equal / above | Off-by-one at the boundary is the likeliest bug. |
-| **Self-approval**: an Approver approving or rejecting their own request is refused | A named requirement that's easy to miss if only roles are checked. |
-| **Cost overrun rule**: auto vs manual ceiling | This is my own documented choice, so it needs to be pinned down. |
-| **Cross-tenant by ID**: a user in org B does GET / approve / complete / history on org A's request id → 404; creates a request with org A's siteId → rejected; org A's data never appears in B's report | The headline security requirement, tested the way an attacker would try it. |
-| **Every tenant entity has a query filter** (reflection over the EF model) | Catches the *future* entity someone adds without a filter. |
-| **`IgnoreQueryFilters` appears only in login** | Keeps the escape hatch from spreading. |
-| **Role enforcement over HTTP**: a Requester approving → 403; unauthenticated → 401 | Proves authz is server-side, not a hidden button. |
-| **Spend report numbers**: in-range vs boundary dates, non-completed excluded, zero-spend sites included, other org excluded | "Returns the right numbers" is graded, and date boundaries are where reports go wrong. |
-| **Audit is atomic and immutable**: an approval writes exactly one matching event; raw-SQL `UPDATE`/`DELETE` on `audit_events` fails | Compliance claims need proof at the DB level, not just in the app. |
-| **Concurrent approve + reject** → one wins, the other gets 409 | A realistic race with two approvers. |
+| **Approval rule table**: `newAmount` vs `threshold` vs `approvedAmount`, including equal-to-threshold, a decrease, an increase staying under, and an increase crossing | The core business rule. Boundaries are where it breaks. |
+| **Transition table**: every `(state × revision kind × action)`, where legal ones succeed and the rest return 409 | The brief says "enforce that". Covers the whole table, not just happy paths. |
+| **Completion blocked**: an actual cost over the authorised amount stays PendingApproval until approved; rejection returns it to Approved | Your explicit rule (answer 5). |
+| **Permission handler**: a Requester can't decide; an Approver can't decide their own request or a revision they submitted; an OrgAdmin can't decide | The conflict-of-interest rules, tested at the permission layer where they live. |
+| **Stale revisionId → 409; concurrent approve + reject → one wins** | Nobody approves an amount they didn't see. |
+| **Threshold**: only OrgAdmin can change it; a change doesn't affect existing decisions (snapshot); it's audited | The self-approval bypass you identified. |
+| **Cross-tenant by ID**: org B uses org A's request, revision and site IDs on every endpoint → 404, and org A's data never appears in B's report | The headline security requirement, tested the way an attacker would. |
+| **Every tenant entity has a query filter; `IgnoreQueryFilters` only in login** | Guards against the *next* entity or query someone adds. |
+| **Spend report numbers** against a hand-computed fixture: date boundaries, non-completed excluded, zero-spend sites included, other org excluded | "Returns the right numbers" is graded. |
+| **Audit**: an auto-approval and a manual approval each write the expected events with the right actor; raw-SQL UPDATE/DELETE on `audit_events` fails | Compliance claims proven at the DB level. |
+| **Timestamps**: `created_at` is set on insert, `updated_at` changes on update, `created_at` stays fixed | Your explicit requirement. Cheap to guard. |
 
-**Not tested, deliberately:** framework behaviour (model binding, EF mapping trivia, per-field validation attributes), the static frontend, and logging. Low risk, and tests there would just mirror the code.
-
----
-
-## 10. Open questions (please decide; defaults marked)
-
-1. **Can Approvers raise requests?** Default: **yes** (the brief's "cannot approve their own request" implies they can).
-2. **What can a Requester see?** Default: **only their own** requests (least privilege). Alternative: all requests in their org.
-3. **Who can change the threshold?** Default: **no API.** It's set per org in seed/DB and snapshotted on each request. An Approver who could change it could lower the bar, then raise their own request under it: a self-approval bypass. The alternative is a separate OrgAdmin role that can't approve.
-4. **Does a cost equal to the threshold need approval?** Default: **yes**.
-5. **Cost overrun:** default **complete + flag + Approver acknowledgement** (§6). Alternative: block completion until re-approved.
-6. **Frontend:** default **static HTML + vanilla JS** calling the API (no build step, one authz path). Alternative: Razor Pages.
-7. **Spend report access:** default **Approvers only**. Alternative: any user in the org.
+**Not tested, deliberately:** framework behaviour (binding, per-field validation attributes, EF mapping trivia), the static client, and logging.
 
 ---
 
-## 11. Execution order (one or more commits each, pushed as I go)
+## 10. Decisions from review
 
-1. **Domain:** entities, the transition table, the overrun rule, plus unit tests. *Transition table: I write it by hand, then the agent writes the tests from it.*
-2. **Schema:** EF configs, the first migration, composite FKs, CHECKs, indexes, the audit trigger. *I review the generated migration SQL line by line.*
-3. **Tenancy:** `ITenantContext`, query filters, the SaveChanges guard, plus isolation meta-tests.
-4. **Auth:** cookie login, revalidation, rate limit, role policies, dev seed (2 orgs × sites × Requester / Approver / Approver2).
-5. **Request endpoints** with validation and ProblemDetails, plus HTTP-level authz and cross-tenant tests.
-6. **Spend report** plus number tests. *I verify the numbers against a hand-computed fixture.*
-7. **Audit history endpoint** plus the immutability test.
-8. **Frontend:** the minimal static client.
-9. **Docs:** update DECISIONS / README / AI-LOG, then a clean-clone run timed against the 15-minute budget.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Can Approvers raise requests? | **Yes.** |
+| 2 | Do Requesters see only their own requests? | **No.** Everyone sees all requests in their org. |
+| 3 | Who changes the threshold? | **API, OrgAdmin only.** Default 10,000, audited, snapshotted per revision. |
+| 4 | Does equal-to-threshold need approval? | **Yes.** |
+| 5 | Cost overrun? | **Needs new approval; completion is blocked until then.** It's the same rule as every other money change (§6). |
+| 6 | Frontend? | **Plain HTML + JS.** |
+| 7 | Who sees the spend report? | **Approvers only.** |
+| — | How many approvals over threshold? | **Any one eligible Approver** (not the requester, not the revision submitter). |
+| — | Where does "can't approve your own request" live? | **In the permission layer** (a resource-based authorization handler), not the entity. |
+
+**Assumptions I made (please object if wrong):**
+1. **OrgAdmin can't raise or approve requests** (separation of duties). Each user has one role.
+2. **OrgAdmin can set the threshold in either direction.** Raising is the sensitive direction; both are audited.
+3. **No edits or revisions while PendingApproval.** Approvers decide on content that can't change.
+4. **A rejected estimate change keeps the old approved amount.** A rejected actual cost sends the request back to Approved to resubmit.
+5. **Completing a request** (recording the actual cost) can be done by the requester or any Approver.
+6. **One currency per org.** Report dates are UTC.
+
+---
+
+## 11. Execution order (commit + push per step)
+
+1. **Domain:** entities, the approval rule, the transition table, plus unit tests. *I review the transition table by hand before tests are written from it.*
+2. **Schema:** configs, timestamp interceptor, migration, composite FKs, CHECKs, indexes, audit trigger. *Generated migration SQL reviewed line by line.*
+3. **Tenancy:** TenantContext, query filters, SaveChanges guard, plus meta-tests.
+4. **Auth:** login, `/me`, revalidation, rate limit, role policies, `CanDecideRevision`, dev seed (2 orgs × sites × Requester / Approver / Approver2 / OrgAdmin).
+5. **Request endpoints:** create, edit, revise, complete, approve, reject, history, plus HTTP authz and cross-tenant tests.
+6. **Organization threshold endpoint** plus tests.
+7. **Spend report** plus hand-computed fixture tests.
+8. **Frontend:** static client.
+9. **Docs:** DECISIONS / README / AI-LOG, then a timed clean-clone run.
