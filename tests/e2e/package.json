@@ -1,0 +1,7 @@
+{
+  "name": "assessment-browser-smoke",
+  "private": true,
+  "description": "Drives the static client in a real browser against a running app. Not part of dotnet test.",
+  "scripts": { "smoke": "node browser-smoke.js" },
+  "devDependencies": { "playwright-core": "^1.55.0" }
+}
