@@ -50,6 +50,8 @@ The draft plan (commit `5da9b7e`) was reviewed and changed before any code was w
 
 **Why it was easy to miss:** the sentence has the right shape: actor, action, exploit. The conclusion was correct, so nothing downstream looked broken. You only notice by working through which direction reduces how many requests need approval.
 
+**Second instance (step 2, caught by the agent):** switching to snake_case naming (`UseSnakeCaseNamingConvention`) also renames EF's own `__EFMigrationsHistory` columns (`MigrationId` → `migration_id`). The dev and test databases had been created by earlier runs with the old column names, so `dotnet ef migrations remove` failed with `42703: column "migration_id" does not exist`. **Why it was easy to miss:** a clean machine never hits it, and the build, the migration generation and the generated SQL all looked correct. It only surfaced because an existing database was touched. Both databases held only an empty history table, so they were dropped and recreated.
+
 Also noted: the first startup logs `fail: ... An error occurred using the connection to database 'assessment'` even though startup succeeded (it's EF checking whether the DB exists). An agent reading logs could "fix" this non-problem, or learn to ignore real connection errors.
 
 ## Checks I did on agent output

@@ -1,6 +1,6 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **v3.1, threshold-snapshot and user-stamp feedback applied.** Decisions are in §10. Nothing is built yet.
+Status: **v3.2.** Steps 1–2 built. The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
 
 ---
 
@@ -68,11 +68,9 @@ organizations      id, name, approval_threshold numeric(12,2) NOT NULL DEFAULT 1
 sites              id, organization_id, name
                    UNIQUE (organization_id, name), UNIQUE (id, organization_id)
 
-roles              id, organization_id, name, is_system_admin bool   -- the OrgAdmin role: locked, all permissions
+roles              id, organization_id, name, is_system_admin bool,  -- the OrgAdmin role: locked, all permissions
+                   permissions text[]                                 -- names from the fixed code catalog
                    UNIQUE (organization_id, name), UNIQUE (id, organization_id)
-
-role_permissions   role_id, organization_id, permission text          -- permission names from a fixed code catalog
-                   PK (role_id, permission), FK (role_id, organization_id) → roles
 
 users              id, organization_id, role_id, email (UNIQUE on lower(email)), display_name,
                    password_hash, is_active
@@ -84,20 +82,21 @@ maintenance_requests
                    approval_threshold numeric(12,2)     -- org threshold snapshotted at creation; governs every revision of this request
                    status (Raised|PendingApproval|Approved|Rejected|Completed),
                    description, estimated_cost          -- current content (may be awaiting approval)
-                   approved_revision_id NULL            -- last approved content; the fallback on rejection
-                   pending_revision_id NULL, actual_cost NULL, completed_at NULL, xmin
+                   actual_cost NULL, completed_at NULL, xmin (concurrency token)
+                   -- pending revision / last approved content are derived from request_revisions
                    FK (site_id, organization_id), FK (requested_by_id, organization_id)
-                   CHECK (status = 'PendingApproval') = (pending_revision_id IS NOT NULL)
                    CHECK status = 'Completed' ⇒ actual_cost, completed_at NOT NULL
 
 request_revisions  -- an immutable snapshot of every change to what is being paid for
-                   id, organization_id, request_id,
+                   id, organization_id, request_id, sequence (1, 2, 3… per request),
                    kind (Initial|Edit|ActualCost), description, amount,
                    previous_revision_id NULL, reason NULL, submitted_by_id,
                    outcome (Pending|AutoApproved|Approved|Rejected|Superseded),
                    decided_by_id NULL, decided_at NULL, decision_comment NULL
                    FK (request_id, organization_id), FK (submitted_by_id, organization_id),
-                   FK (decided_by_id, organization_id)
+                   FK (decided_by_id, organization_id), FK (previous_revision_id, organization_id)
+                   UNIQUE (request_id, sequence)
+                   UNIQUE (request_id) WHERE outcome = 'Pending'   -- at most one pending revision, enforced by the DB
                    CHECK decided_by_id IS NULL OR decided_by_id <> submitted_by_id
 
 audit_events       id bigint identity, organization_id, entity_type, entity_id, action,

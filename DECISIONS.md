@@ -23,6 +23,11 @@ Significant technical choices, what was rejected, and the trade-off. The full de
 | **Threshold snapshotted on the request at creation** | Evaluating every change against the current org threshold | A threshold change can't rewrite how existing requests are treated. |
 | **`created_at`/`updated_at` + `created_by_id`/`updated_by_id` on every table**, set by an interceptor | Setting them by hand in each feature | Can't be forgotten. `audit_events` has only `created_at` + actor, because its rows are immutable. |
 | **`xmin` optimistic concurrency** | Pessimistic locks | Two Approvers deciding at once: one wins, the other gets 409. |
+| **Pending / last-approved revision derived from `request_revisions`**, with a partial unique index `(request_id) WHERE outcome='Pending'` | `pending_revision_id` / `approved_revision_id` columns on the request | No circular FK between the two tables, which EF handles badly on insert. The DB still guarantees at most one pending revision. |
+| **Revisions auto-included** whenever a request is loaded | Explicit `Include` at each call site | The aggregate's rules need its revisions. A forgotten `Include` would silently give wrong answers (e.g. "nothing pending"). List endpoints use projections, which skip it. |
+| **Role permissions as a `text[]` column** | A `role_permissions` join table | Permissions are only read per role, never queried across roles. |
+| **snake_case identifiers** via `EFCore.NamingConventions` | EF's default PascalCase | Idiomatic Postgres, with no quoted identifiers in raw SQL, CHECKs or triggers. |
+| **No FKs on `created_by_id` / `updated_by_id`** | Composite FKs to users | The `organizations` table has no org column to make them composite, and the audit trail (which *is* FK'd) is the authoritative who. |
 | **Migrate on startup in Development only** | Always; manual only | One-command start for reviewers. Unsafe with multiple instances, so it's off elsewhere. |
 
 ## Tenant isolation
