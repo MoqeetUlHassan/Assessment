@@ -34,7 +34,10 @@ Significant technical choices, what was rejected, and the trade-off. The full de
 
 1. At login, the org ID comes from the **user's DB record**, is carried in the session and loaded into a request-scoped `TenantContext`. It's never read from a URL, query string or body.
 2. **EF Core global query filters** on every tenant entity make reads org-locked by default. A foreign ID returns 404, not 403, so it doesn't leak that the record exists.
-3. A **SaveChanges guard** stamps the org on inserts and throws on any foreign entity.
+3. A **SaveChanges guard** *verifies* every added, modified or deleted row belongs to the caller's org, and throws otherwise. It refuses tenantless writes and any audit change.
+   - It verifies rather than stamps, so a wrong org is a bug surfaced, not silently corrected.
+   - Seeding uses an explicit **system scope**, which is never reachable from HTTP.
+   - With no tenant, **reads return nothing** (the filter compares against null), so the system fails closed.
 4. **Composite FKs** in the DB.
 
 **Why at the data layer:** checks written per endpoint get forgotten eventually, while filters are on by default. The only `IgnoreQueryFilters()` is login's email lookup, and a test enforces that.

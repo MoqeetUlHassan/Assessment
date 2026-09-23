@@ -58,7 +58,7 @@ src/Assessment.Api/
 │   │   └── Migrations/                  InitialSchema (+ raw-SQL audit trigger)
 │   └── Tenancy/
 │       ├── TenantContext.cs          ✅ who is calling, for which org
-│       └── query filters, SaveChanges guard   🔜 step 3
+│       └── TenantGuardInterceptor.cs ✅ write guard (reads: query filters in AppDbContext)
 ├── Authorization/                    🔜 step 4   permission policies, CanDecideRevision, CanModifyRequest
 ├── Features/                         🔜 steps 4–7
 │   ├── Auth/        login · logout · me
@@ -69,7 +69,7 @@ src/Assessment.Api/
 
 tests/Assessment.Api.Tests/
 ├── Domain/          ✅ transition table (every state × action), approval rules, revisions, audit, roles
-├── Persistence/     ✅ DB guarantees: audit immutability, atomic audit, composite FKs, one-pending
+├── Persistence/     ✅ DB guarantees, cross-tenant reads/writes by real id, fail-closed, model conventions
 └── (Http/)          🔜 authz, cross-tenant, report numbers
 ```
 
@@ -82,8 +82,8 @@ tests/Assessment.Api.Tests/
 | Concern | Enforced in | Mechanism | Failure |
 |---|---|---|---|
 | **Who is calling** | Cookie auth → `TenantContext` | The org and user come from the user's DB record at login. They're never read from a route, query string or body. | 401 |
-| **Which data exists for you** | `AppDbContext` global query filters 🔜 | `WHERE organization_id = @tenant` on every tenant entity | 404 |
-| **No writes to another tenant** | SaveChanges guard 🔜 + composite FKs ✅ | Throws on a foreign entity; the DB rejects cross-org references | 500 → never expected / DB error |
+| **Which data exists for you** | `AppDbContext` global query filters ✅ | `WHERE organization_id = @tenant` on every tenant entity | 404 |
+| **No writes to another tenant** | `TenantGuardInterceptor` ✅ + composite FKs ✅ | Verifies every added, modified or deleted row belongs to the caller's org. Refuses writes with no tenant. Refuses audit changes. The DB rejects cross-org references. | 500 (a bug, never user error) |
 | **What you may do** | Permission policies 🔜 | `requests.create`, `requests.approve`, `admin.*`, … (never role names) | 403 |
 | **Conflict of interest** | `CanDecideRevision` handler 🔜 + DB CHECK ✅ | No deciding your own request or a revision you submitted (OrgAdmin included) | 403 |
 | **What is legal now** | `RequestTransitions` ✅ | `(status, pending kind) → allowed actions` | 409 |
@@ -125,7 +125,7 @@ sequenceDiagram
     D-->>A: 409 if the transition is illegal or the revisionId is stale
     D->>D: state change + AuditEvent raised
     EP->>DB: SaveChanges
-    DB->>DB: interceptors: collect audit events, stamp updated_at/by
+    DB->>DB: interceptors: collect audit events → tenant guard → stamp updated_at/by
     DB->>PG: UPDATE request, UPDATE revision, INSERT audit_events (one transaction)
     PG-->>A: 409 if xmin changed (a concurrent decision won)
     EP-->>A: 200 with the updated request
@@ -175,8 +175,8 @@ stateDiagram-v2
 flowchart TB
     R["Incoming request<br/>GET /requests/{someone-elses-id}"] --> L1
     L1["1 · Identity ✅<br/>orgId comes from the user's DB record at login,<br/>never from the request"] --> L2
-    L2["2 · Reads 🔜 step 3<br/>global query filter on every tenant entity<br/>→ the foreign row doesn't exist → 404"] --> L3
-    L3["3 · Writes 🔜 step 3<br/>SaveChanges guard: stamps orgId on insert,<br/>throws on any foreign entity"] --> L4
+    L2["2 · Reads ✅<br/>global query filter on every tenant entity<br/>→ the foreign row doesn't exist → 404"] --> L3
+    L3["3 · Writes ✅<br/>SaveChanges guard verifies every written row<br/>belongs to the caller's org, else throws"] --> L4
     L4["4 · Database ✅<br/>composite FKs (x_id, organization_id)<br/>reject cross-org references"]
 ```
 
@@ -189,13 +189,18 @@ flowchart TB
 ```mermaid
 flowchart LR
     F[Feature calls SaveChanges] --> I1["AuditEventInterceptor<br/>entity.PendingAuditEvents → audit_events"]
-    I1 --> I2["EntityStampingInterceptor<br/>created_at/by (Added)<br/>updated_at/by (Added, Modified)"]
-    I2 --> G["Tenant guard 🔜<br/>foreign entity → throw"]
-    G --> T[("One transaction<br/>INSERT / UPDATE rows<br/>+ INSERT audit_events")]
+    I1 --> G["TenantGuardInterceptor<br/>foreign / tenantless write → throw<br/>audit change → throw"]
+    G --> I2["EntityStampingInterceptor<br/>created_at/by (Added)<br/>updated_at/by (Added, Modified)"]
+    I2 --> T[("One transaction<br/>INSERT / UPDATE rows<br/>+ INSERT audit_events")]
     T -- "constraint / trigger / xmin failure" --> RB[Rollback: no state change, no audit row]
 ```
 
-The interceptor order is set in `Program.cs`: audit collection runs first, so the audit rows it adds are saved in the same batch.
+The interceptor order is set in `Program.cs`: audit collection first (so the guard checks audit rows too), then the tenant guard, then stamping.
+
+**Tenant states** (`TenantContext`):
+- **unset:** reads return nothing (the filters compare against null) and writes are refused. It fails closed.
+- **tenant:** everything is confined to one org.
+- **system:** cross-org writes are allowed. Only seeding and test setup use it, and it's never reachable from HTTP.
 
 ---
 

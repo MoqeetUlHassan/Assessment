@@ -7,7 +7,7 @@ Tool: Claude Code (Claude Opus 5.5). Agent configuration: [`CLAUDE.md`](CLAUDE.m
 | Level | Work |
 |---|---|
 | **Delegated fully** | Project scaffolding (`dotnet new`, solution wiring, `.gitignore`, `global.json`), `docker-compose.yml`, first drafts of README / DECISIONS. |
-| **Delegated with tight constraints** | _To fill in during feature work._ |
+| **Delegated with tight constraints** | Domain model, schema and tenancy (steps 1–3). Constraints: implement against PLAN.md; stop for my hand review of the transition table before tests; every new test must be seen failing (planted bugs); read the generated migration SQL before committing. |
 | **Done by hand** | Choosing PostgreSQL. Deciding to use my existing local Postgres rather than Docker. Reviewing the plan and rewriting the approval / permission / audit rules (v1 → v2, below). _More during feature work._ |
 
 ## Task specifications / prompts (verbatim)
@@ -58,3 +58,10 @@ Also noted: the first startup logs `fail: ... An error occurred using the connec
 
 - Ran the app and hit `/health` against the real local Postgres rather than trusting the build.
 - Pointed the health test at a dead port to confirm it **fails** when the DB is unreachable, so it isn't passing vacuously.
+- **Planted bugs (mutation checks) for every test suite so far.** Each bug was caught by exactly the tests aimed at it:
+  - domain: `>=` → `>`; an extra legal action;
+  - schema: audit triggers dropped; the audit interceptor unregistered;
+  - tenancy: query filters removed; the guard's owner check disabled; a stray `.IgnoreQueryFilters()` call.
+- **Small misses caught in step 3:**
+  - A guard comment said "applies even to system scope" while the code returned early for system scope. The structure was fixed so the comment is true.
+  - The first `IgnoreQueryFilters` scanner flagged a doc comment. It now matches call-shaped usage.

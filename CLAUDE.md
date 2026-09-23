@@ -16,7 +16,7 @@ Guidance for AI coding agents working in this repo.
 `PLAN.md` holds the agreed design (permissions, approval rules, transition table, data model). `DECISIONS.md` holds the rationale. If code and plan disagree, stop and ask. Don't silently pick one.
 
 ## Domain & security rules
-- **Tenancy:** the org ID comes only from `TenantContext` (the authenticated user), never from a route, query or body. Every tenant entity must have a global query filter. `IgnoreQueryFilters()` is allowed **only** in the login email lookup.
+- **Tenancy:** the org ID comes only from `TenantContext` (the authenticated user), never from a route, query or body. Every tenant entity must have a global query filter. `IgnoreQueryFilters()` is allowed **only** in the login email lookup; a test enforces this. `TenantContext.UseSystemScope()` is for seeding only, never for request handling.
 - **Authorization:** check **permissions** (`requests.approve`, ...), never role names. Rules that need the record (self-approval, own-request) go in resource-based handlers in `Authorization/`, not in endpoints or entities.
 - **Nobody approves their own request or a revision they submitted.** This includes OrgAdmin. There are no exceptions.
 - **Approval rules** use the **request's snapshotted threshold**, never the org's current one.

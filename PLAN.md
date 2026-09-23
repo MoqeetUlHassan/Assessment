@@ -1,6 +1,6 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **v3.2.** Steps 1–2 built. The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
+Status: **v3.2.** Steps 1–3 built. The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
 
 ---
 
@@ -130,7 +130,7 @@ audit_events       id bigint identity, organization_id, entity_type, entity_id, 
 |---|---|---|
 | 1. Request scope | A request-scoped `TenantContext` is populated from the authenticated user. All data access goes through it. | Callers claiming another tenant. |
 | 2. Reads | An **EF Core global query filter** on every tenant entity. Every query is org-locked automatically. | A forgotten `.Where`. A foreign ID doesn't exist → **404**. |
-| 3. Writes | A SaveChanges guard stamps `OrganizationId` on inserts and throws if any tracked entity is foreign. | Code attaching foreign data. It also means an admin can only create users and roles **in their own org**, regardless of the request body. |
+| 3. Writes | A SaveChanges guard **verifies** that every added, modified or deleted row belongs to the caller's org, and throws otherwise. It also refuses writes with no tenant, and any change to audit rows. It verifies rather than stamps, so a wrong org surfaces as a bug instead of being silently "fixed". | Code attaching foreign data. It also means an admin can only create users and roles **in their own org**, regardless of the request body. |
 | 4. Database | Composite FKs. | Cross-tenant references from bugs in the layers above. |
 
 The one allowed `IgnoreQueryFilters()` is login's email lookup, and a test enforces that. This is at the data layer because per-endpoint checks get forgotten, while a query filter is on by default.
