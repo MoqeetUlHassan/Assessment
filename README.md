@@ -1,24 +1,30 @@
-# Assessment
+# Maintenance Requests & Approvals
 
-ASP.NET Core (.NET 10) Web API on PostgreSQL.
+Backend (with a minimal UI) for a facilities management company. Site staff raise maintenance requests, requests cost money, and money needs approval before work proceeds. Features:
 
-Backend for facilities maintenance requests: multi-tenant organisations, sites, permission-based roles, threshold-based approval with re-approval on changes, a spend report, and an immutable audit trail.
+- multi-tenant organisations, strictly isolated;
+- permission-based roles;
+- threshold-based approval, with re-approval when costs change;
+- a spend report;
+- a tamper-resistant audit trail.
+
+ASP.NET Core (.NET 10) · EF Core · PostgreSQL · vanilla JS client.
 
 | Doc | What's in it |
 |---|---|
-| [PLAN.md](PLAN.md) | Agreed design: data model, permissions, approval rules, transition table, API, tests |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Layers, request flow, where each guarantee is enforced (diagrams) |
-| [SCHEMA.md](SCHEMA.md) | ER diagram, composite FKs, constraints, indexes and the query each serves |
 | [DECISIONS.md](DECISIONS.md) | One page: choices, what was rejected, trade-offs, what wasn't built, assumptions ([full record](docs/decisions-full.md)) |
 | [AI-LOG.md](AI-LOG.md) | One page: what was delegated, a real prompt, the plausible-but-wrong instance, how output was checked ([full record](docs/ai-log-full.md)) |
 | [CLAUDE.md](CLAUDE.md) | Agent configuration and rules |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Layers, request flow, where each guarantee is enforced (diagrams) |
+| [SCHEMA.md](SCHEMA.md) | ER diagram, composite FKs, constraints, indexes and the query each serves |
+| [PLAN.md](PLAN.md) | The design as agreed before coding, revised through three review rounds |
 
 ## Prerequisites
 
 | Tool | Version | Check |
 |---|---|---|
-| .NET SDK | 10.0.x (pinned in `global.json`, later 10.0 feature bands accepted) | `dotnet --list-sdks` |
-| PostgreSQL | 14+ — **either** Docker **or** a local install | `docker --version` / `psql --version` |
+| .NET SDK | 10.0.x (pinned in `global.json`; later 10.0 feature bands accepted) | `dotnet --list-sdks` |
+| PostgreSQL | 14+, **either** Docker **or** a local install | `docker --version` / `psql --version` |
 | Node.js *(optional)* | 18+, only for command-line login (`scripts/login.mjs`) and the browser smoke test | `node --version` |
 
 ## Run it
@@ -29,55 +35,53 @@ git clone https://github.com/MoqeetUlHassan/Assessment.git && cd Assessment
 # 1. Start Postgres (skip if you already have one on localhost:5432 with user/password postgres/postgres)
 docker compose up -d db
 
-# 2. Run the API. It creates the database and applies migrations on startup.
+# 2. Run the app. In Development it creates the database, applies migrations and seeds demo data on startup.
 dotnet run --project src/Assessment.Api --launch-profile http
 ```
 
-Then open **http://localhost:5183** and sign in with a seeded account (below). The minimal UI covers login, the request list (filter and paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail. Sign in as `admin@acme.test` to reach the **Admin** page: threshold, users, roles and permissions, and the organization audit log. Approvers and admins also get **Spend report**: the total actual cost of completed requests per site over a date range (the current month by default).
+Open **http://localhost:5183** and sign in with a seeded account (below).
+- **Everyone:** the request list (filter, paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail.
+- **Approvers and admins:** also **Spend report**.
+- **`admin@acme.test`:** also **Admin**: threshold, users, roles and permissions, and the organization audit log.
 
-Check it's up:
-
-```bash
-curl http://localhost:5183/health     # -> Healthy
-```
-
-OpenAPI document (Development only): http://localhost:5183/openapi/v1.json
+Other endpoints: `curl http://localhost:5183/health` (→ `Healthy`), and the OpenAPI document (Development only) at http://localhost:5183/openapi/v1.json.
 
 **How long it takes (measured).** A timed run from a fresh `git clone` into an empty folder, against a brand-new empty database:
 - build: 5 s;
 - first start, including migrations and seeding: 7 s;
 - **first successful login: 17 s after the clone began**;
-- the full test suite on another fresh database: 137/137, 10 s.
+- the full test suite on another fresh database: 137/137.
 
-That machine already had the .NET 10 SDK and a warm NuGet cache. On a truly clean machine, add the SDK install (about 3–5 min) and the first package restore (about 1–2 min); **roughly 10 minutes in total**.
+That machine already had the .NET 10 SDK and a warm NuGet cache. On a truly clean machine, add the SDK install (about 3–5 min) and the first package restore (about 1–2 min), for **roughly 10 minutes in total**.
 
-The Docker Compose path hasn't been exercised: the author's machine has no Docker, and runs against a local Postgres 16. It's a stock `postgres:16-alpine` service with the same credentials as `appsettings.Development.json`.
+The Docker Compose path hasn't been exercised: the author's machine has no Docker and uses a local Postgres 16. It's a stock `postgres:16-alpine` service with the same credentials as `appsettings.Development.json`.
 
 ### Seeded accounts (Development only)
 
-On first start in Development, two organizations are created so you can try tenant isolation by hand. **Every account's password is `ChangeMe-Dev-2026!`**
+On first start in Development, two organizations are created so tenant isolation can be tried by hand. **Every account's password is `ChangeMe-Dev-2026!`**
 
 | Organization | Email | Role | Can |
 |---|---|---|---|
-| Acme Retail | `admin@acme.test` | OrgAdmin | everything; manage users, roles, threshold (never approve own requests) |
+| Acme Retail | `admin@acme.test` | OrgAdmin | everything, incl. users, roles, threshold (never approve own requests) |
 | Acme Retail | `approver1@acme.test`, `approver2@acme.test` | Approver | raise, edit any, approve/reject, spend report |
 | Acme Retail | `requester@acme.test` | Requester | raise, edit/complete own |
-| Globex Offices | `admin@globex.test`, `approver1@globex.test`, `approver2@globex.test`, `requester@globex.test` | same roles | same, isolated from Acme |
+| Globex Offices | `admin@globex.test`, `approver1@globex.test`, `approver2@globex.test`, `requester@globex.test` | same roles | the same, isolated from Acme |
 
-Sites: Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower, Site 12, Data Centre*. A fresh database also gets a few demo requests in different states (completed, approved, pending approval), created through the real domain methods with genuine audit trails, so the list and this month's spend report aren't empty. Both have a "Site 12", which is deliberate: names don't cross tenants. Seeding is off outside Development (`Seed:DevelopmentData`).
+- **Sites:** Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower, Site 12, Data Centre*. Both having a "Site 12" is deliberate: names don't cross tenants.
+- **Demo requests:** a fresh database also gets a few requests in different states, created through the real domain methods with genuine audit trails, so the list and this month's spend report aren't empty.
+- **When seeding runs:** only in Development (`Seed:DevelopmentData`), and only on a database that hasn't been seeded yet.
 
 ### Try the API with curl
 
-Every password field (login, and the admin create-user and reset-password forms) is accepted **only encrypted**, never plain (see DECISIONS.md). A plain curl call therefore can't log in; `scripts/login.mjs` (Node 18+) does what the browser does and saves the session cookie to a curl cookie jar:
+Every password field (login, and the admin create-user and reset-password forms) is accepted **only encrypted** (see [Security](#security-where-its-enforced-and-how-its-verified)). A plain curl call can't log in. `scripts/login.mjs` does what the browser does and saves the session cookie to a curl cookie jar:
 
 ```bash
 node scripts/login.mjs approver1@acme.test 'ChangeMe-Dev-2026!' jar.txt   # challenge → encrypt → login → jar.txt
-
-curl -b jar.txt http://localhost:5183/api/me          # who am I, which org, which permissions
+curl -b jar.txt http://localhost:5183/api/me                              # who am I, which org, which permissions
 curl -b jar.txt -X POST http://localhost:5183/api/auth/logout
 ```
 
-A full request lifecycle (requester raises 15,000 against a 10,000 threshold → an approver approves → actual cost → approved → Completed):
+A full request lifecycle (the requester raises 15,000 against a 10,000 threshold → an approver approves → actual cost → approved → Completed):
 
 ```bash
 B=http://localhost:5183; H='Content-Type: application/json'; PW='ChangeMe-Dev-2026!'
@@ -103,7 +107,7 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 | GET | `/api/sites` | session | your org's sites |
 | GET | `/api/requests?status=&siteId=&page=&pageSize=` | session | whole org, newest first, paged (≤ 100) |
 | POST | `/api/requests` | `requests.create` | `{ siteId, description, estimatedCost }` |
-| GET | `/api/requests/{id}` | session | includes revisions and `actions` the caller may take |
+| GET | `/api/requests/{id}` | session | includes revisions and the `actions` the caller may take |
 | PUT | `/api/requests/{id}` | own request, or `requests.manage` | `{ description, estimatedCost, reason }` |
 | POST | `/api/requests/{id}/complete` | own request, or `requests.manage` | `{ actualCost, reason? }` |
 | POST | `/api/requests/{id}/approve` | `requests.approve`, not your request/revision | `{ revisionId, comment? }` |
@@ -115,86 +119,123 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 | POST | `/api/admin/users/{id}/deactivate` · `/reactivate` | `admin.users` | not yourself; ends their sessions |
 | POST | `/api/admin/users/{id}/password` | `admin.users` | `{ keyId, encryptedPassword }` (≥ 12 after decryption); ends their sessions |
 | GET / POST | `/api/admin/roles` | `admin.roles` | list / create `{ name, permissions[] }` |
-| PUT | `/api/admin/roles/{id}/permissions` | `admin.roles` | `admin.*` can't be granted; OrgAdmin role locked |
+| PUT | `/api/admin/roles/{id}/permissions` | `admin.roles` | `admin.*` can't be granted; the OrgAdmin role is locked |
 | GET | `/api/admin/permissions` | `admin.roles` | the permission catalog |
 | PUT | `/api/admin/settings/threshold` | `admin.settings` | `{ amount, reason }`; applies to new requests only |
-| GET | `/api/admin/audit?entityType=&page=` | `admin.users` | organization-wide audit log |
+| GET | `/api/admin/audit?entityType=&page=&pageSize=` | `admin.users` | organization-wide audit log |
 
 Errors are `application/problem+json`:
 
 | Status | When |
 |---|---|
-| 400 | Invalid or malformed input |
+| 400 | Invalid or malformed input, or an invalid/expired password challenge |
 | 401 | No session |
 | 403 | Missing permission, or your own request / revision |
 | 404 | Doesn't exist, **or belongs to another organization** (indistinguishable) |
-| 409 | Illegal transition, a stale `revisionId`, or a concurrent change |
+| 409 | Illegal transition, a stale `revisionId`, a duplicate email, or a concurrent change |
+| 429 | Too many login attempts or challenges from one IP |
 
-### Using your own Postgres instead of Docker
+## Security: where it's enforced and how it's verified
 
-The default connection string (in `src/Assessment.Api/appsettings.Development.json`) is:
+| Requirement | Enforced at | Proven by |
+|---|---|---|
+| **Tenant isolation**, including manipulated IDs | The org comes only from the user's DB record at login → **global query filters** on every tenant table (a foreign ID is a 404; no tenant means no rows) → **SaveChanges guard** (refuses writing another org's rows) → **composite FKs** in the DB | `Persistence/TenantIsolationTests` (real foreign IDs, a smuggled entity), `TenantModelConventionTests` (every entity filtered; `IgnoreQueryFilters` only in login), `Http/RequestAuthorizationHttpTests` (an OrgAdmin of another org gets 404 on every endpoint), `AdminHttpTests`, `SpendReportTests`, `SchemaGuaranteesTests` (the FK rejects a cross-org site) |
+| **Authorization, server-side** | Permission policies on every endpoint; resource handler `CanDecide` / `CanModify` (no approving your own request or your own change, OrgAdmin included); DB CHECK as backstop | `Authorization/RequestAuthorizationTests`, `Http/RequestAuthorizationHttpTests` (direct API calls, no UI), `AdminHttpTests` (403 on every admin endpoint) |
+| **Input validation** | .NET 10 minimal-API validation on every body; the domain re-checks invariants (amount > 0, ≤ 10M, 2 dp; lengths; required reasons); malformed JSON → 400, never 500 | `Http/RequestLifecycleHttpTests.Malformed_input_is_a_400_never_a_500`, `SpendReportTests.Invalid_ranges_are_rejected`, `Domain/RevisionLifecycleTests` |
+| **Sessions and passwords** | HttpOnly SameSite=Strict cookie; the user is reloaded every request (deactivation, reset and permission changes take effect immediately); identical 401 for every login failure; per-IP rate limit; **password fields encrypted in the payload** (single-use nonce); HTTPS + HSTS outside Development; strict CSP | `Http/AuthenticationTests`, `EncryptedLoginTests`, `ProductionModeTests`, `StaticClientTests`, `tests/e2e/browser-smoke.js` (no password in any real request body; injected HTML renders as text) |
+| **Audit integrity** | Written in the **same transaction** as the change, by the domain; **DB trigger rejects UPDATE/DELETE/TRUNCATE**; the app guard refuses changes even in system scope | `Persistence/SchemaGuaranteesTests` (raw SQL tampering fails; a failed save leaves no audit row), `TenantIsolationTests`, `Domain/AuditTrailTests` (replaying the trail reproduces the status), `AdminHttpTests` (every admin action attributed, no passwords in details) |
+| **Secrets** | See below | `ProductionModeTests` (startup fails without the key), `StartupConfigurationTests` (missing connection string fails fast) |
 
-```
-Host=localhost;Port=5432;Database=assessment;Username=postgres;Password=postgres
-```
+**Secrets: local vs production**
 
-If your credentials differ, override the connection string without editing files. Either:
+| Secret | Locally (what this repo does) | Production (what I'd do) |
+|---|---|---|
+| DB connection string | Throwaway `postgres/postgres` in `appsettings.Development.json`; override with user-secrets or env var | From a secret manager (Key Vault / Secrets Manager) or a managed identity; nothing in config files |
+| Password-encryption private key | Generated in memory at each start, never on disk | `LoginEncryption__PrivateKeyPem` from the secret manager; startup refuses to run without it |
+| Cookie-signing keys (Data Protection) | ASP.NET default key ring in the user profile | Persisted to shared storage and encrypted with a KMS key, so all instances share it |
+| Seed accounts | Documented dev password; seeding only in Development | No seeding; real users are provisioned by an OrgAdmin |
+
+Nothing sensitive is committed. The only credentials in the repo are the throwaway local ones above.
+
+## Tests: what and why
+
+137 xUnit tests run against **real PostgreSQL**; the EF InMemory provider would skip constraints, triggers and real SQL. Each test creates its own organizations, so no cleanup is needed. **Every suite was checked by planting bugs** and confirming the targeted tests fail (26 planted bugs; see AI-LOG).
+
+| Suite | Why these tests |
+|---|---|
+| `Domain/TransitionTableTests` | "Enforce that" illegal transitions fail: **every** state × action pair, not just the happy paths |
+| `Domain/ApprovalRulesTests`, `RevisionLifecycleTests` | The money rules at their boundaries (9,999.99 / 10,000 / 10,000.01), re-approval on edits, completion blocked, rejection fallbacks, "approve what you saw" |
+| `Persistence/*` | What the **database** must guarantee even if app code is wrong: audit immutability, atomic audit, composite FKs, one pending revision, forced concurrency interleavings |
+| `Authorization/*`, `Http/RequestAuthorizationHttpTests`, `AdminHttpTests` | Conflict of interest and privilege escalation, attempted the way an attacker would, over HTTP |
+| `Http/SpendReportTests` | "Returns the right numbers": a **hand-computed fixture** with rows on the exact boundary instants, non-completed work, and another org's spend |
+| `Http/AuthenticationTests`, `EncryptedLoginTests`, `ProductionModeTests` | Enumeration, revocation on the next request, replay, and production-only behaviour the Development suite would never see |
+
+**Not tested, deliberately:** framework behaviour (binding, per-field validation attributes, EF mapping trivia), logging, and the client's markup (covered only by the browser smoke test).
 
 ```bash
-# user-secrets (persisted per machine, outside the repo)
-dotnet user-secrets --project src/Assessment.Api init
-dotnet user-secrets --project src/Assessment.Api set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=assessment;Username=me;Password=secret"
+dotnet test                       # needs Postgres; uses the database assessment_test (created automatically)
+TEST_CONNECTION_STRING="Host=...;Database=...;Username=...;Password=..." dotnet test   # another server
+```
 
-# or an environment variable, for the current shell only
+**Browser smoke test (optional).** `tests/e2e/browser-smoke.js` drives the real UI in a headless browser against a **running** app, using an installed Edge (or Chrome with `BROWSER_CHANNEL=chrome`). It isn't part of `dotnet test`.
+- It covers login, an HTML-injection description, approve/reject, completion, the audit trail, the spend report, the admin panel, a cross-tenant 404, logout, no password in any request body, and no JS or CSP errors.
+- It signs in about 8 times against a rate limit of 10 per minute per IP, so allow a minute between runs.
+- It uses your dev database: it restores the threshold it changes, but leaves a test user and some audit rows behind.
+
+```bash
+dotnet run --project src/Assessment.Api --launch-profile http   # terminal 1
+cd tests/e2e && npm install && node browser-smoke.js            # terminal 2
+```
+
+## Configuration
+
+**Using your own Postgres instead of Docker.** The default connection string (`appsettings.Development.json`) is `Host=localhost;Port=5432;Database=assessment;Username=postgres;Password=postgres`. If yours differs, override it without editing files:
+
+```bash
+dotnet user-secrets --project src/Assessment.Api set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=assessment;Username=me;Password=secret"
+# or, for the current shell only:
 export ConnectionStrings__Default="Host=...;Username=me;Password=secret"     # bash
 $env:ConnectionStrings__Default="Host=...;Username=me;Password=secret"       # PowerShell
 ```
 
-Port 5432 already taken by a local Postgres but you still want the Docker one? Run `POSTGRES_PORT=5433 docker compose up -d db`, then override the connection string with `Port=5433`.
+Is port 5432 taken by a local Postgres, but you still want the Docker one? Run `POSTGRES_PORT=5433 docker compose up -d db` and use `Port=5433`.
 
-## Run the tests
+**Running outside Development.** Set `ASPNETCORE_ENVIRONMENT=Production` (or any non-Development value), plus:
+- `ConnectionStrings__Default` and `LoginEncryption__PrivateKeyPem` (an RSA key of ≥ 3072 bits in PEM format), from a secret manager.
+- Migrations don't run on startup there. Apply them with `dotnet ef database update --project src/Assessment.Api` (or a migration bundle) as a deploy step.
+- HTTP is redirected to HTTPS and HSTS is sent. Behind a TLS-terminating proxy, configure forwarded headers.
 
-The tests boot the real app against a **real Postgres** database named `assessment_test`, which is created automatically. Postgres must be running (step 1 above).
-
-```bash
-dotnet test
-```
-
-To point the tests at a different server, set `TEST_CONNECTION_STRING`.
-
-### Browser smoke test (optional)
-
-`tests/e2e/browser-smoke.js` drives the UI in a real headless browser against a **running** app. It covers login, raising a request with an HTML-injection description, approve/reject, completion, the audit trail, a cross-tenant 404, logout, and no JS or CSP errors. It uses an installed Edge (or Chrome with `BROWSER_CHANNEL=chrome`) and isn't part of `dotnet test`.
-
-```bash
-dotnet run --project src/Assessment.Api --launch-profile http   # in one terminal
-cd tests/e2e && npm install && node browser-smoke.js            # in another
-```
-
-It signs in about 8 times, and the login rate limit is 10 per minute per IP, so allow a minute between runs. It runs against your dev database: it restores the threshold it changes, but it leaves one test user and some audit rows behind.
-
-## Database migrations
-
-`dotnet-ef` is pinned as a local tool:
+**Database migrations.** `dotnet-ef` is pinned as a local tool:
 
 ```bash
 dotnet tool restore
 dotnet ef migrations add <Name> --project src/Assessment.Api
 ```
 
-In Development, migrations are applied automatically on startup. In any other environment they are not (see DECISIONS.md).
-
 ## Project layout
 
 ```
-src/Assessment.Api/          Web API (minimal APIs, EF Core, Npgsql)
-  Data/AppDbContext.cs       EF Core context; entity configs picked up by assembly scan
-tests/Assessment.Api.Tests/  xUnit integration tests via WebApplicationFactory
-docker-compose.yml           Postgres 16 for local dev / reviewers
+src/Assessment.Api/
+  Domain/                  entities, MaintenanceRequest aggregate, ApprovalRules, RequestTransitions, permissions
+  Authorization/           session middleware, CurrentUser, permission policies, CanDecide / CanModify
+  Features/                endpoints by feature: Auth, Requests, Sites, Admin, Reports
+  Infrastructure/Data/     AppDbContext, entity configurations, interceptors, migrations, dev seeder
+  Infrastructure/Tenancy/  TenantContext, tenant write guard
+  wwwroot/                 static client (HTML + vanilla JS + CSS)
+tests/Assessment.Api.Tests/  Domain · Persistence · Authorization · Http
+tests/e2e/                 headless-browser smoke test
+scripts/login.mjs          command-line login for curl users
+docs/                      full decisions and AI-log records
+docker-compose.yml         Postgres 16 for reviewers without a local install
 ```
 
 ## Troubleshooting
 
-- **`fail: ... An error occurred using the connection to database 'assessment'` on first start.** This is expected: EF Core checks whether the database exists before creating it. If `/health` returns `Healthy`, nothing is wrong.
-- **`Connection string 'ConnectionStrings:Default' is missing`**: you are running outside the Development environment. Use `--launch-profile http`, or set the connection string as shown above.
-- **`password authentication failed for user "postgres"`**: your local Postgres uses different credentials. Override them as shown above.
+- **`fail: ... An error occurred using the connection to database 'assessment'` on first start.** Expected: EF Core checks whether the database exists before creating it. If `/health` returns `Healthy`, nothing is wrong.
+- **`password authentication failed for user "postgres"`.** Your local Postgres uses different credentials; override the connection string as shown above.
+- **`Connection string 'ConnectionStrings:Default' is missing`.** You're running outside Development; use `--launch-profile http` or set the connection string.
+- **Login says "Password encryption needs a secure page".** Browsers only allow Web Crypto on HTTPS or `localhost`. Open `http://localhost:5183`, not a LAN IP.
+- **Login says "The login challenge is invalid or has expired".** The app restarted (a new in-memory key) or the page sat for over 2 minutes. Reload and sign in again.
+- **`429 Too Many Requests` on login.** That's the per-IP login rate limit (10 per minute). Wait a minute.
+- **A fresh database has no demo requests.** Seeding runs once per database. To start clean, drop the `assessment` database and restart the app.
+- **`dotnet test` fails to build with "file is locked by Assessment.Api".** Stop the running app first; on Windows it locks the build output.
