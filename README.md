@@ -42,6 +42,29 @@ curl http://localhost:5183/health     # -> Healthy
 
 OpenAPI document (Development only): http://localhost:5183/openapi/v1.json
 
+### Seeded accounts (Development only)
+
+On first start in Development, two organizations are created so you can try tenant isolation by hand. **Every account's password is `ChangeMe-Dev-2026!`**
+
+| Organization | Email | Role | Can |
+|---|---|---|---|
+| Acme Retail | `admin@acme.test` | OrgAdmin | everything; manage users, roles, threshold (never approve own requests) |
+| Acme Retail | `approver1@acme.test`, `approver2@acme.test` | Approver | raise, edit any, approve/reject, spend report |
+| Acme Retail | `requester@acme.test` | Requester | raise, edit/complete own |
+| Globex Offices | `admin@globex.test`, `approver1@globex.test`, `approver2@globex.test`, `requester@globex.test` | same roles | same, isolated from Acme |
+
+Sites: Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower, Site 12, Data Centre*. Both have a "Site 12", which is deliberate: names don't cross tenants. Seeding is off outside Development (`Seed:DevelopmentData`).
+
+### Try the API with curl
+
+```bash
+# log in (stores the HttpOnly session cookie in a jar)
+curl -c jar.txt -H 'Content-Type: application/json'      -d '{"email":"approver1@acme.test","password":"ChangeMe-Dev-2026!"}'      http://localhost:5183/api/auth/login
+
+curl -b jar.txt http://localhost:5183/api/me          # who am I, which org, which permissions
+curl -b jar.txt -X POST http://localhost:5183/api/auth/logout
+```
+
 ### Using your own Postgres instead of Docker
 
 The default connection string (in `src/Assessment.Api/appsettings.Development.json`) is:

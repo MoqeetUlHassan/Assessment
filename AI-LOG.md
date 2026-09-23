@@ -52,6 +52,10 @@ The draft plan (commit `5da9b7e`) was reviewed and changed before any code was w
 
 **Second instance (step 2, caught by the agent):** switching to snake_case naming (`UseSnakeCaseNamingConvention`) also renames EF's own `__EFMigrationsHistory` columns (`MigrationId` → `migration_id`). The dev and test databases had been created by earlier runs with the old column names, so `dotnet ef migrations remove` failed with `42703: column "migration_id" does not exist`. **Why it was easy to miss:** a clean machine never hits it, and the build, the migration generation and the generated SQL all looked correct. It only surfaced because an existing database was touched. Both databases held only an empty history table, so they were dropped and recreated.
 
+**Third instance (step 4): a test suite that looked complete but wasn't.** The authorization tests covered "an Approver can't approve their own request" and "can't approve a revision they submitted", and all passed. Planting a bug that **deleted the own-request check entirely** left all 93 tests green. In every test where the approver owned the request, they had also authored the pending revision, so the own-revision rule always denied them first and the own-request rule was never exercised on its own. The missing case: *a colleague edits your request, and you try to approve their edit.* A test was added (`Approver_cannot_approve_a_colleagues_edit_of_their_own_request`), and the planted bug now fails it. **Why it was easy to miss:** the test names read like full coverage of both rules, and reading the tests wouldn't reveal the overlap. Only removing the code did.
+
+**Also in step 4 (found by the tests):** parallel test hosts each ran the dev seeder on startup and deadlocked (`40P01`) inserting the same rows. The fix is a Postgres advisory lock in the seeder, not a test workaround; two dev instances starting together would have hit the same race.
+
 Also noted: the first startup logs `fail: ... An error occurred using the connection to database 'assessment'` even though startup succeeded (it's EF checking whether the DB exists). An agent reading logs could "fix" this non-problem, or learn to ignore real connection errors.
 
 ## Checks I did on agent output
@@ -61,7 +65,8 @@ Also noted: the first startup logs `fail: ... An error occurred using the connec
 - **Planted bugs (mutation checks) for every test suite so far.** Each bug was caught by exactly the tests aimed at it:
   - domain: `>=` → `>`; an extra legal action;
   - schema: audit triggers dropped; the audit interceptor unregistered;
-  - tenancy: query filters removed; the guard's owner check disabled; a stray `.IgnoreQueryFilters()` call.
+  - tenancy: query filters removed; the guard's owner check disabled; a stray `.IgnoreQueryFilters()` call;
+  - auth: own-revision check removed; the session middleware trusting the cookie; the own-request check removed. **That last one survived at first; see "Third instance" above.**
 - **Small misses caught in step 3:**
   - A guard comment said "applies even to system scope" while the code returned early for system scope. The structure was fixed so the comment is true.
   - The first `IgnoreQueryFilters` scanner flagged a doc comment. It now matches call-shaped usage.

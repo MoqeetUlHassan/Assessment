@@ -59,18 +59,24 @@ src/Assessment.Api/
 │   └── Tenancy/
 │       ├── TenantContext.cs          ✅ who is calling, for which org
 │       └── TenantGuardInterceptor.cs ✅ write guard (reads: query filters in AppDbContext)
-├── Authorization/                    🔜 step 4   permission policies, CanDecideRevision, CanModifyRequest
-├── Features/                         🔜 steps 4–7
-│   ├── Auth/        login · logout · me
-│   ├── Requests/    create · list · get · edit · complete · approve · reject · history
-│   ├── Admin/       users · roles · threshold
-│   └── Reports/     spend by site
+├── Authorization/                    ✅ step 4
+│   ├── SessionValidationMiddleware.cs   per request: tenant from cookie, reload user+role, drop stale sessions
+│   ├── CurrentUser.cs                   this request's user + permissions (fresh from DB)
+│   ├── PermissionPolicies.cs            one policy per catalog permission
+│   ├── RequestAuthorization.cs          CanDecide / CanModify (conflict-of-interest rules)
+│   └── SessionClaims.cs                 cookie contents: user id, org id, password-derived stamp
+├── Features/
+│   ├── Auth/        ✅ login · logout · me
+│   ├── Requests/    🔜 create · list · get · edit · complete · approve · reject · history
+│   ├── Admin/       🔜 users · roles · threshold
+│   └── Reports/     🔜 spend by site
 └── wwwroot/                          🔜 step 8   static client
 
 tests/Assessment.Api.Tests/
 ├── Domain/          ✅ transition table (every state × action), approval rules, revisions, audit, roles
 ├── Persistence/     ✅ DB guarantees, cross-tenant reads/writes by real id, fail-closed, model conventions
-└── (Http/)          🔜 authz, cross-tenant, report numbers
+├── Authorization/   ✅ CanDecide / CanModify matrix incl. OrgAdmin and cross-org
+└── Http/            ✅ login, sessions, revocation, rate limit, seed accounts · 🔜 request endpoints, report
 ```
 
 **Dependency rule:** `Domain` depends on nothing. `Infrastructure` depends on `Domain`. `Features` and `Authorization` depend on both. It's enforced by convention and review, not separate assemblies (see DECISIONS.md).
@@ -81,11 +87,11 @@ tests/Assessment.Api.Tests/
 
 | Concern | Enforced in | Mechanism | Failure |
 |---|---|---|---|
-| **Who is calling** | Cookie auth → `TenantContext` | The org and user come from the user's DB record at login. They're never read from a route, query string or body. | 401 |
+| **Who is calling** | Cookie auth → `SessionValidationMiddleware` ✅ | The org and user come from the user's DB record at login. On every request the user is reloaded, and the session is dropped if they're inactive or their password changed. | 401 |
 | **Which data exists for you** | `AppDbContext` global query filters ✅ | `WHERE organization_id = @tenant` on every tenant entity | 404 |
 | **No writes to another tenant** | `TenantGuardInterceptor` ✅ + composite FKs ✅ | Verifies every added, modified or deleted row belongs to the caller's org. Refuses writes with no tenant. Refuses audit changes. The DB rejects cross-org references. | 500 (a bug, never user error) |
-| **What you may do** | Permission policies 🔜 | `requests.create`, `requests.approve`, `admin.*`, … (never role names) | 403 |
-| **Conflict of interest** | `CanDecideRevision` handler 🔜 + DB CHECK ✅ | No deciding your own request or a revision you submitted (OrgAdmin included) | 403 |
+| **What you may do** | Permission policies ✅ | `requests.create`, `requests.approve`, `admin.*`, … (never role names) | 403 |
+| **Conflict of interest** | `MaintenanceRequestAuthorizationHandler.CanDecide` ✅ + DB CHECK ✅ | No deciding your own request or a revision you submitted (OrgAdmin included) | 403 |
 | **What is legal now** | `RequestTransitions` ✅ | `(status, pending kind) → allowed actions` | 409 |
 | **Needs a human?** | `ApprovalRules` ✅ | The amount vs the **request's snapshotted** threshold | routes to PendingApproval |
 | **Approve what you saw** | `MaintenanceRequest` ✅ | `revisionId` must be the current pending one | 409 |
