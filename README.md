@@ -13,7 +13,6 @@ Backend for facilities maintenance requests: multi-tenant organisations, sites, 
 | [AI-LOG.md](AI-LOG.md) | One page: what was delegated, a real prompt, the plausible-but-wrong instance, how output was checked ([full record](docs/ai-log-full.md)) |
 | [CLAUDE.md](CLAUDE.md) | Agent configuration and rules |
 
-
 ## Prerequisites
 
 | Tool | Version | Check |
@@ -22,10 +21,10 @@ Backend for facilities maintenance requests: multi-tenant organisations, sites, 
 | PostgreSQL | 14+ — **either** Docker **or** a local install | `docker --version` / `psql --version` |
 | Node.js *(optional)* | 18+, only for command-line login (`scripts/login.mjs`) and the browser smoke test | `node --version` |
 
-## Run it (about 5 minutes on a clean machine)
+## Run it
 
 ```bash
-git clone <repo-url> && cd Assessment
+git clone https://github.com/MoqeetUlHassan/Assessment.git && cd Assessment
 
 # 1. Start Postgres (skip if you already have one on localhost:5432 with user/password postgres/postgres)
 docker compose up -d db
@@ -43,6 +42,16 @@ curl http://localhost:5183/health     # -> Healthy
 ```
 
 OpenAPI document (Development only): http://localhost:5183/openapi/v1.json
+
+**How long it takes (measured).** A timed run from a fresh `git clone` into an empty folder, against a brand-new empty database:
+- build: 5 s;
+- first start, including migrations and seeding: 7 s;
+- **first successful login: 17 s after the clone began**;
+- the full test suite on another fresh database: 137/137, 10 s.
+
+That machine already had the .NET 10 SDK and a warm NuGet cache. On a truly clean machine, add the SDK install (about 3–5 min) and the first package restore (about 1–2 min); **roughly 10 minutes in total**.
+
+The Docker Compose path hasn't been exercised: the author's machine has no Docker, and runs against a local Postgres 16. It's a stock `postgres:16-alpine` service with the same credentials as `appsettings.Development.json`.
 
 ### Seeded accounts (Development only)
 
