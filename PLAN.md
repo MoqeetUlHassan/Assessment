@@ -1,6 +1,6 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **v3.2.** Steps 1–8 built (the client was built early, on request). Remaining: step 9 (final docs, timed clean-clone run). The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
+Status: **v3.2, implemented.** All steps built. Later additions beyond this plan, made on request: encrypted password fields, and HTTPS/HSTS outside Development (see DECISIONS.md). The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
 
 ---
 

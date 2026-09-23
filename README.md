@@ -9,11 +9,10 @@ Backend for facilities maintenance requests: multi-tenant organisations, sites, 
 | [PLAN.md](PLAN.md) | Agreed design: data model, permissions, approval rules, transition table, API, tests |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Layers, request flow, where each guarantee is enforced (diagrams) |
 | [SCHEMA.md](SCHEMA.md) | ER diagram, composite FKs, constraints, indexes and the query each serves |
-| [DECISIONS.md](DECISIONS.md) | Technical choices, what was rejected, trade-offs, assumptions |
-| [AI-LOG.md](AI-LOG.md) | How the AI agent was used and steered |
+| [DECISIONS.md](DECISIONS.md) | One page: choices, what was rejected, trade-offs, what wasn't built, assumptions ([full record](docs/decisions-full.md)) |
+| [AI-LOG.md](AI-LOG.md) | One page: what was delegated, a real prompt, the plausible-but-wrong instance, how output was checked ([full record](docs/ai-log-full.md)) |
 | [CLAUDE.md](CLAUDE.md) | Agent configuration and rules |
 
-> Implementation in progress. Run instructions below cover the current state.
 
 ## Prerequisites
 
