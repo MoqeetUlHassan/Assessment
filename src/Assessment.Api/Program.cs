@@ -1,4 +1,5 @@
-using Assessment.Api.Data;
+using Assessment.Api.Infrastructure.Data;
+using Assessment.Api.Infrastructure.Tenancy;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,7 +8,15 @@ var connectionString = builder.Configuration.GetConnectionString("Default")
     ?? throw new InvalidOperationException(
         "Connection string 'ConnectionStrings:Default' is missing. See README.md.");
 
-builder.Services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<TenantContext>();
+builder.Services.AddScoped<AuditEventInterceptor>();
+builder.Services.AddScoped<EntityStampingInterceptor>();
+builder.Services.AddDbContext<AppDbContext>((sp, options) => options
+    .UseNpgsql(connectionString)
+    .UseSnakeCaseNamingConvention()
+    // Audit collection first, so the audit rows it adds are part of the same save.
+    .AddInterceptors(sp.GetRequiredService<AuditEventInterceptor>(), sp.GetRequiredService<EntityStampingInterceptor>()));
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database");
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
