@@ -92,7 +92,7 @@ _ = app.Services.GetRequiredService<PasswordFieldEncryption>();
 if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 {
     using var scope = app.Services.CreateScope();
-    await scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.MigrateAsync();
+    await DatabaseMigrator.MigrateAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>()); // advisory-locked
 }
 
 if (app.Configuration.GetValue<bool>("Seed:DevelopmentData"))
