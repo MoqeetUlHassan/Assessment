@@ -65,6 +65,48 @@ curl -b jar.txt http://localhost:5183/api/me          # who am I, which org, whi
 curl -b jar.txt -X POST http://localhost:5183/api/auth/logout
 ```
 
+A full request lifecycle (requester raises 15,000 against a 10,000 threshold → an approver approves → actual cost → approved → Completed):
+
+```bash
+B=http://localhost:5183; H='Content-Type: application/json'; PW='ChangeMe-Dev-2026!'
+curl -s -c req.jar -H "$H" -d "{\"email\":\"requester@acme.test\",\"password\":\"$PW\"}" $B/api/auth/login >/dev/null
+curl -s -c app.jar -H "$H" -d "{\"email\":\"approver1@acme.test\",\"password\":\"$PW\"}" $B/api/auth/login >/dev/null
+
+curl -s -b req.jar $B/api/sites                                   # pick a siteId
+curl -s -b req.jar -H "$H" -d '{"siteId":"<siteId>","description":"Replace chiller","estimatedCost":15000}' $B/api/requests
+#   → status PendingApproval, pendingRevision.id = <revisionId>
+curl -s -b app.jar -H "$H" -d '{"revisionId":"<revisionId>","comment":"ok"}' $B/api/requests/<id>/approve
+curl -s -b req.jar -H "$H" -d '{"actualCost":12000}' $B/api/requests/<id>/complete    # ≥ threshold → pending again
+curl -s -b app.jar -H "$H" -d '{"revisionId":"<newRevisionId>"}' $B/api/requests/<id>/approve   # → Completed
+curl -s -b req.jar $B/api/requests/<id>/history                   # who did what, when
+```
+
+### API summary
+
+| Method | Route | Needs | Notes |
+|---|---|---|---|
+| POST | `/api/auth/login` · `/api/auth/logout` | — | rate-limited per IP |
+| GET | `/api/me` | session | user, role, permissions, org, threshold |
+| GET | `/api/sites` | session | your org's sites |
+| GET | `/api/requests?status=&siteId=&page=&pageSize=` | session | whole org, newest first, paged (≤ 100) |
+| POST | `/api/requests` | `requests.create` | `{ siteId, description, estimatedCost }` |
+| GET | `/api/requests/{id}` | session | includes revisions and `actions` the caller may take |
+| PUT | `/api/requests/{id}` | own request, or `requests.manage` | `{ description, estimatedCost, reason }` |
+| POST | `/api/requests/{id}/complete` | own request, or `requests.manage` | `{ actualCost, reason? }` |
+| POST | `/api/requests/{id}/approve` | `requests.approve`, not your request/revision | `{ revisionId, comment? }` |
+| POST | `/api/requests/{id}/reject` | `requests.approve`, not your request/revision | `{ revisionId, reason }` |
+| GET | `/api/requests/{id}/history` | session | revisions + audit events with actor names |
+
+Errors are `application/problem+json`:
+
+| Status | When |
+|---|---|
+| 400 | Invalid or malformed input |
+| 401 | No session |
+| 403 | Missing permission, or your own request / revision |
+| 404 | Doesn't exist, **or belongs to another organization** (indistinguishable) |
+| 409 | Illegal transition, a stale `revisionId`, or a concurrent change |
+
 ### Using your own Postgres instead of Docker
 
 The default connection string (in `src/Assessment.Api/appsettings.Development.json`) is:

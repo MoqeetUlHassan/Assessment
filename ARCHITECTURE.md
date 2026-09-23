@@ -67,7 +67,8 @@ src/Assessment.Api/
 │   └── SessionClaims.cs                 cookie contents: user id, org id, password-derived stamp
 ├── Features/
 │   ├── Auth/        ✅ login · logout · me
-│   ├── Requests/    🔜 create · list · get · edit · complete · approve · reject · history
+│   ├── Requests/    ✅ create · list · get · edit · complete · approve · reject · history
+│   ├── Sites/       ✅ list
 │   ├── Admin/       🔜 users · roles · threshold
 │   └── Reports/     🔜 spend by site
 └── wwwroot/                          🔜 step 8   static client
@@ -76,7 +77,7 @@ tests/Assessment.Api.Tests/
 ├── Domain/          ✅ transition table (every state × action), approval rules, revisions, audit, roles
 ├── Persistence/     ✅ DB guarantees, cross-tenant reads/writes by real id, fail-closed, model conventions
 ├── Authorization/   ✅ CanDecide / CanModify matrix incl. OrgAdmin and cross-org
-└── Http/            ✅ login, sessions, revocation, rate limit, seed accounts · 🔜 request endpoints, report
+└── Http/            ✅ login, sessions, revocation, rate limit, seed accounts, request lifecycle, authz + cross-tenant on every endpoint · 🔜 report
 ```
 
 **Dependency rule:** `Domain` depends on nothing. `Infrastructure` depends on `Domain`. `Features` and `Authorization` depend on both. It's enforced by convention and review, not separate assemblies (see DECISIONS.md).
@@ -95,8 +96,8 @@ tests/Assessment.Api.Tests/
 | **What is legal now** | `RequestTransitions` ✅ | `(status, pending kind) → allowed actions` | 409 |
 | **Needs a human?** | `ApprovalRules` ✅ | The amount vs the **request's snapshotted** threshold | routes to PendingApproval |
 | **Approve what you saw** | `MaintenanceRequest` ✅ | `revisionId` must be the current pending one | 409 |
-| **Concurrent decisions** | `xmin` concurrency token ✅ | The second writer loses | 409 |
-| **Input shape** | Endpoint validation 🔜 + `Guard` ✅ | Lengths, amounts > 0, ≤ 10M, 2 dp, required reasons | 400 |
+| **Concurrent decisions** | `xmin` on the request row ✅. Any revision change also bumps its request row, so the whole aggregate is versioned. | The second writer loses | 409 |
+| **Input shape** | Endpoint validation ✅ + `Guard` ✅ | Lengths, amounts > 0, ≤ 10M, 2 dp, required reasons | 400 |
 | **Audit written** | `AuditEventInterceptor` ✅ | Domain-raised events are saved in the **same transaction** | the whole save rolls back |
 | **Audit immutable** | DB trigger ✅ | UPDATE, DELETE and TRUNCATE are rejected | DB error |
 | **Who / when on every row** | `EntityStampingInterceptor` ✅ | `created_*` write-once, `updated_*` on every change | — |
