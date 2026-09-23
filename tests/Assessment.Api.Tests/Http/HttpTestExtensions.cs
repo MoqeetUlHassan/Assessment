@@ -12,7 +12,7 @@ internal static class HttpTestExtensions
         string password = TestTenant.Password)
     {
         var client = factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new { email = user.Email, password });
+        var response = await client.LoginAsync(user.Email, password);
         response.EnsureSuccessStatusCode();
         return client;
     }

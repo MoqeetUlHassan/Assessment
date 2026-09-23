@@ -15,7 +15,7 @@ public class SeedDataTests(ApiFactory factory) : IClassFixture<ApiFactory>
     public async Task Documented_seed_accounts_can_log_in(string email, string role, string org)
     {
         var client = factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login", new { email, password = DevelopmentSeeder.Password });
+        var response = await client.LoginAsync(email, DevelopmentSeeder.Password);
 
         response.EnsureSuccessStatusCode();
         var me = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -30,8 +30,7 @@ public class SeedDataTests(ApiFactory factory) : IClassFixture<ApiFactory>
         await DevelopmentSeeder.SeedAsync(factory.Services);
 
         var client = factory.CreateClient();
-        var response = await client.PostAsJsonAsync("/api/auth/login",
-            new { email = "admin@acme.test", password = DevelopmentSeeder.Password });
+        var response = await client.LoginAsync("admin@acme.test", DevelopmentSeeder.Password);
         response.EnsureSuccessStatusCode();
     }
 }

@@ -7,11 +7,16 @@ const PASSWORD = 'ChangeMe-Dev-2026!';
 const XSS = '<img src=x onerror="window.__xss=1">Fix chiller';
 
 const results = [];
+const loginBodies = []; // every POST /api/auth/login body the browser actually sent
+const watchLogins = page => page.on('request', r => {
+  if (r.method() === 'POST' && r.url().endsWith('/api/auth/login')) loginBodies.push(r.postData() || '');
+});
 const check = (name, ok, detail = '') => { results.push({ name, ok }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`); };
 
 async function session(browser, email) {
   const context = await browser.newContext();
   const page = await context.newPage();
+  watchLogins(page);
   const problems = [];
   page.on('console', m => { if (m.type() === 'error') problems.push(m.text()); });
   page.on('pageerror', e => problems.push(e.message));
@@ -35,6 +40,7 @@ async function session(browser, email) {
     // Wrong password shows the generic error on the login page.
     {
       const page = await (await browser.newContext()).newPage();
+      watchLogins(page);
       await page.goto(BASE + '/');
       await page.fill('input[name=email]', 'requester@acme.test');
       await page.fill('input[name=password]', 'wrong');
@@ -169,6 +175,11 @@ async function session(browser, email) {
     await requester.page.goto(BASE + '/requests.html');
     await requester.page.waitForURL('**/index.html');
     check('logout: protected page redirects to sign-in', requester.page.url().endsWith('/index.html'));
+
+    check('login payloads carry only the encrypted password',
+      loginBodies.length >= 5 && loginBodies.every(b => b.includes('encryptedPassword') && !b.includes('"password"')
+        && !b.includes(PASSWORD) && !b.includes('Smoke-Test-Password-1') && !b.includes('wrong"')),
+      `${loginBodies.length} login request(s) inspected`);
 
     const allProblems = [...requester.problems, ...approver.problems, ...globex.problems, ...admin.problems]
       .filter(p => !p.includes('status of 4')); // expected 4xx responses logged by the browser

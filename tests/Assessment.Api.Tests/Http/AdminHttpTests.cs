@@ -48,7 +48,7 @@ public class AdminHttpTests(ApiFactory factory) : IClassFixture<ApiFactory>
         });
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
 
-        var login = await factory.CreateClient().PostAsJsonAsync("/api/auth/login", new { email, password = "Nina-Password-123" });
+        var login = await factory.CreateClient().LoginAsync(email, "Nina-Password-123");
         var me = await login.JsonAsync();
         Assert.Equal(t.Org.Id, me.GetProperty("organization").GetProperty("id").GetGuid());
         Assert.Equal("Approver", me.GetProperty("role").GetString());

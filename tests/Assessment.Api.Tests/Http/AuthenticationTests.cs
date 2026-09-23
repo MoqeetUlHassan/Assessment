@@ -18,8 +18,7 @@ public class AuthenticationTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var tenant = await TestTenant.CreateAsync(factory);
         var client = factory.CreateClient();
 
-        var response = await client.PostAsJsonAsync("/api/auth/login",
-            new { email = tenant.Approver.Email.ToUpperInvariant(), password = TestTenant.Password });
+        var response = await client.LoginAsync(tenant.Approver.Email.ToUpperInvariant(), TestTenant.Password);
 
         response.EnsureSuccessStatusCode();
         var cookie = Assert.Single(response.Headers.GetValues("Set-Cookie"));
@@ -46,7 +45,7 @@ public class AuthenticationTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var client = factory.CreateClient();
         async Task<(HttpStatusCode, string?)> Attempt(string email, string password)
         {
-            var r = await client.PostAsJsonAsync("/api/auth/login", new { email, password });
+            var r = await client.LoginAsync(email, password);
             return (r.StatusCode, (await r.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("title").GetString());
         }
 
@@ -154,8 +153,7 @@ public class LoginRateLimitTests : IClassFixture<LoginRateLimitTests.LowLimitFac
         var client = _factory.CreateClient();
         var statuses = new List<HttpStatusCode>();
         for (var i = 0; i < 4; i++)
-            statuses.Add((await client.PostAsJsonAsync("/api/auth/login",
-                new { email = "guess@test.local", password = $"guess-{i}" })).StatusCode);
+            statuses.Add((await client.LoginAsync("guess@test.local", $"guess-{i}")).StatusCode);
 
         Assert.Equal(
             [HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, HttpStatusCode.TooManyRequests],
