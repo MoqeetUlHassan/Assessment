@@ -45,8 +45,9 @@ The agent asked one clarifying question rather than guessing: whether "everyone"
 
 ## How I checked the output
 
-- **Planted bugs for every suite** (26 mutations). One survived and exposed the gap above; one survived *as predicted* (an equivalent mutation), kept for index use and proven with `EXPLAIN`.
+- **Planted bugs for every suite** (27 mutations). One survived and exposed the gap above; one survived *as predicted* (an equivalent mutation), kept for index use and proven with `EXPLAIN`.
 - **Ran the real app before writing HTTP tests:** a curl walkthrough found three bugs that 94 green tests missed (a 500 from .NET 10 validation, a false 409 from EF's Guid-key convention, and a 500 on malformed input).
 - **Headless-browser smoke test** (installed Edge): HTML injection renders as text, cross-tenant 404, and no password in any request payload. It found a login race that could put credentials in the URL, and a visible `null` in the header.
 - **Captured EF's real SQL** to confirm the tenant filter sits inside the report's subqueries.
+- **An independent review against the brief** (a separate agent session, told to change nothing): a cold-cache fresh clone, 63 API checks, and the browser smoke test. It found that the first `dotnet test` on a brand-new database failed one test **every time**. Parallel test hosts raced on the new `RequestListIndexes` migration; my own earlier fresh-clone timing predated that migration, so it missed this. The fix is an advisory-locked migrator, with a test that fails 3/3 without the lock. The review also caught a too-strict SDK pin in `global.json`.
 - **Rejected agent shortcuts:** `[SkipValidation]` (evaluation-only API) and suppressing its warning; loosening the login rate limit to make a test pass.

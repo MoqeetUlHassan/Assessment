@@ -23,7 +23,7 @@ ASP.NET Core (.NET 10) · EF Core · PostgreSQL · vanilla JS client.
 
 | Tool | Version | Check |
 |---|---|---|
-| .NET SDK | 10.0.x (pinned in `global.json`; later 10.0 feature bands accepted) | `dotnet --list-sdks` |
+| .NET SDK | any .NET 10 SDK, 10.0.100 or later (`global.json` rolls forward to the newest installed) | `dotnet --list-sdks` |
 | PostgreSQL | 14+, **either** Docker **or** a local install | `docker --version` / `psql --version` |
 | Node.js *(optional)* | 18+, only for command-line login (`scripts/login.mjs`) and the browser smoke test | `node --version` |
 
@@ -46,13 +46,14 @@ Open **http://localhost:5183** and sign in with a seeded account (below).
 
 Other endpoints: `curl http://localhost:5183/health` (→ `Healthy`), and the OpenAPI document (Development only) at http://localhost:5183/openapi/v1.json.
 
-**How long it takes (measured).** A timed run from a fresh `git clone` into an empty folder, against a brand-new empty database:
-- build: 5 s;
-- first start, including migrations and seeding: 7 s;
-- **first successful login: 17 s after the clone began**;
-- the full test suite on another fresh database: 137/137.
+**How long it takes (measured).** A timed run from a fresh `git clone`, with an **empty NuGet cache** (every package downloaded) and a **brand-new empty database**:
+- clone: 3 s;
+- restore and build: 44 s;
+- first start, including migrations and seeding: healthy at **51 s**;
+- **first successful login at 52 s**;
+- the full test suite on another brand-new database: **140/140**.
 
-That machine already had the .NET 10 SDK and a warm NuGet cache. On a truly clean machine, add the SDK install (about 3–5 min) and the first package restore (about 1–2 min), for **roughly 10 minutes in total**.
+On a truly clean machine, add the .NET 10 SDK install (about 3–5 minutes), for **well under 10 minutes in total**.
 
 The Docker Compose path hasn't been exercised: the author's machine has no Docker and uses a local Postgres 16. It's a stock `postgres:16-alpine` service with the same credentials as `appsettings.Development.json`.
 
@@ -159,13 +160,13 @@ Nothing sensitive is committed. The only credentials in the repo are the throwaw
 
 ## Tests: what and why
 
-137 xUnit tests run against **real PostgreSQL**; the EF InMemory provider would skip constraints, triggers and real SQL. Each test creates its own organizations, so no cleanup is needed. **Every suite was checked by planting bugs** and confirming the targeted tests fail (26 planted bugs; see AI-LOG).
+140 xUnit tests run against **real PostgreSQL**; the EF InMemory provider would skip constraints, triggers and real SQL. Each test creates its own organizations, so no cleanup is needed. **Every suite was checked by planting bugs** and confirming the targeted tests fail (27 planted bugs; see AI-LOG).
 
 | Suite | Why these tests |
 |---|---|
 | `Domain/TransitionTableTests` | "Enforce that" illegal transitions fail: **every** state × action pair, not just the happy paths |
 | `Domain/ApprovalRulesTests`, `RevisionLifecycleTests` | The money rules at their boundaries (9,999.99 / 10,000 / 10,000.01), re-approval on edits, completion blocked, rejection fallbacks, "approve what you saw" |
-| `Persistence/*` | What the **database** must guarantee even if app code is wrong: audit immutability, atomic audit, composite FKs, one pending revision, forced concurrency interleavings |
+| `Persistence/*` | What the **database** must guarantee even if app code is wrong: audit immutability, atomic audit, composite FKs, one pending revision, forced concurrency interleavings, and concurrent migrations on a brand-new database |
 | `Authorization/*`, `Http/RequestAuthorizationHttpTests`, `AdminHttpTests` | Conflict of interest and privilege escalation, attempted the way an attacker would, over HTTP |
 | `Http/SpendReportTests` | "Returns the right numbers": a **hand-computed fixture** with rows on the exact boundary instants, non-completed work, and another org's spend |
 | `Http/AuthenticationTests`, `EncryptedLoginTests`, `ProductionModeTests` | Enumeration, revocation on the next request, replay, and production-only behaviour the Development suite would never see |
