@@ -66,7 +66,7 @@ src/Assessment.Api/
 │   ├── RequestAuthorization.cs          CanDecide / CanModify (conflict-of-interest rules)
 │   └── SessionClaims.cs                 cookie contents: user id, org id, password-derived stamp
 ├── Features/
-│   ├── Auth/        ✅ login · logout · me
+│   ├── Auth/        ✅ login-challenge · login (encrypted password) · logout · me
 │   ├── Requests/    ✅ create · list · get · edit · complete · approve · reject · history
 │   ├── Sites/       ✅ list
 │   ├── Admin/       ✅ users · roles · permissions · threshold · org audit log
@@ -88,6 +88,7 @@ tests/Assessment.Api.Tests/
 
 | Concern | Enforced in | Mechanism | Failure |
 |---|---|---|---|
+| **Password in transit** | `LoginPasswordEncryption` ✅ (plus HTTPS) | The login payload carries only `RSA-OAEP(nonce ‖ password)`. Nonces are single-use and expire after 2 minutes. | 400 (invalid or replayed) |
 | **Who is calling** | Cookie auth → `SessionValidationMiddleware` ✅ | The org and user come from the user's DB record at login. On every request the user is reloaded, and the session is dropped if they're inactive or their password changed. | 401 |
 | **Which data exists for you** | `AppDbContext` global query filters ✅ | `WHERE organization_id = @tenant` on every tenant entity | 404 |
 | **No writes to another tenant** | `TenantGuardInterceptor` ✅ + composite FKs ✅ | Verifies every added, modified or deleted row belongs to the caller's org. Refuses writes with no tenant. Refuses audit changes. The DB rejects cross-org references. | 500 (a bug, never user error) |

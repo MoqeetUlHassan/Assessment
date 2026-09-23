@@ -21,6 +21,7 @@ Backend for facilities maintenance requests: multi-tenant organisations, sites, 
 |---|---|---|
 | .NET SDK | 10.0.x (pinned in `global.json`, later 10.0 feature bands accepted) | `dotnet --list-sdks` |
 | PostgreSQL | 14+ — **either** Docker **or** a local install | `docker --version` / `psql --version` |
+| Node.js *(optional)* | 18+, only for command-line login (`scripts/login.mjs`) and the browser smoke test | `node --version` |
 
 ## Run it (about 5 minutes on a clean machine)
 
@@ -59,9 +60,10 @@ Sites: Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower
 
 ### Try the API with curl
 
+The login endpoint accepts only an **encrypted password field**, never a plain one (see DECISIONS.md). A plain curl call therefore can't log in; `scripts/login.mjs` (Node 18+) does what the browser does and saves the session cookie to a curl cookie jar:
+
 ```bash
-# log in (stores the HttpOnly session cookie in a jar)
-curl -c jar.txt -H 'Content-Type: application/json'      -d '{"email":"approver1@acme.test","password":"ChangeMe-Dev-2026!"}'      http://localhost:5183/api/auth/login
+node scripts/login.mjs approver1@acme.test 'ChangeMe-Dev-2026!' jar.txt   # challenge → encrypt → login → jar.txt
 
 curl -b jar.txt http://localhost:5183/api/me          # who am I, which org, which permissions
 curl -b jar.txt -X POST http://localhost:5183/api/auth/logout
@@ -71,8 +73,8 @@ A full request lifecycle (requester raises 15,000 against a 10,000 threshold →
 
 ```bash
 B=http://localhost:5183; H='Content-Type: application/json'; PW='ChangeMe-Dev-2026!'
-curl -s -c req.jar -H "$H" -d "{\"email\":\"requester@acme.test\",\"password\":\"$PW\"}" $B/api/auth/login >/dev/null
-curl -s -c app.jar -H "$H" -d "{\"email\":\"approver1@acme.test\",\"password\":\"$PW\"}" $B/api/auth/login >/dev/null
+node scripts/login.mjs requester@acme.test "$PW" req.jar
+node scripts/login.mjs approver1@acme.test "$PW" app.jar
 
 curl -s -b req.jar $B/api/sites                                   # pick a siteId
 curl -s -b req.jar -H "$H" -d '{"siteId":"<siteId>","description":"Replace chiller","estimatedCost":15000}' $B/api/requests
@@ -87,7 +89,8 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 
 | Method | Route | Needs | Notes |
 |---|---|---|---|
-| POST | `/api/auth/login` · `/api/auth/logout` | — | rate-limited per IP |
+| GET | `/api/auth/login-challenge` | — | `{ keyId, publicKey, nonce }` for encrypting the password (rate-limited) |
+| POST | `/api/auth/login` · `/api/auth/logout` | — | login body `{ email, keyId, encryptedPassword }`; rate-limited per IP |
 | GET | `/api/me` | session | user, role, permissions, org, threshold |
 | GET | `/api/sites` | session | your org's sites |
 | GET | `/api/requests?status=&siteId=&page=&pageSize=` | session | whole org, newest first, paged (≤ 100) |
