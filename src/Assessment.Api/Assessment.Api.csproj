@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Lets `dotnet user-secrets set` work without `init`; the secrets themselves live in the user profile, never in the repo. -->
+    <UserSecretsId>1b95a1b0-5aa2-48d4-8404-18c7f10f5714</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
