@@ -51,7 +51,7 @@ Other endpoints: `curl http://localhost:5183/health` (→ `Healthy`), and the Op
 - restore and build: 44 s;
 - first start, including migrations and seeding: healthy at **51 s**;
 - **first successful login at 52 s**;
-- the full test suite on another brand-new database: **140/140**.
+- the full test suite on another brand-new database: all green (re-checked on a brand-new database after the latest change: **146/146**).
 
 On a truly clean machine, add the .NET 10 SDK install (about 3–5 minutes), for **well under 10 minutes in total**.
 
@@ -69,6 +69,7 @@ On first start in Development, two organizations are created so tenant isolation
 | Globex Offices | `admin@globex.test`, `approver1@globex.test`, `approver2@globex.test`, `requester@globex.test` | same roles | the same, isolated from Acme |
 
 - **Sites:** Acme has *Site 12, Downtown Store, Warehouse North*; Globex has *HQ Tower, Site 12, Data Centre*. Both having a "Site 12" is deliberate: names don't cross tenants.
+- **Adding sites:** anyone signed in can add a site from the request form (**+ Add a new site…** at the bottom of the Site list). It always belongs to the adder's organization. Names are unique within an organization, ignoring case. Each addition appears in the admin audit log as *Site Created*. Sites can't be renamed or deleted, because requests and the spend report refer to them.
 - **Demo requests:** a fresh database also gets a few requests in different states, created through the real domain methods with genuine audit trails, so the list and this month's spend report aren't empty.
 - **When seeding runs:** only in Development (`Seed:DevelopmentData`), and only on a database that hasn't been seeded yet.
 
@@ -141,7 +142,7 @@ Errors are `application/problem+json`:
 
 | Requirement | Enforced at | Proven by |
 |---|---|---|
-| **Tenant isolation**, including manipulated IDs | The org comes only from the user's DB record at login → **global query filters** on every tenant table (a foreign ID is a 404; no tenant means no rows) → **SaveChanges guard** (refuses writing another org's rows) → **composite FKs** in the DB | `Persistence/TenantIsolationTests` (real foreign IDs, a smuggled entity), `TenantModelConventionTests` (every entity filtered; `IgnoreQueryFilters` only in login), `Http/RequestAuthorizationHttpTests` (an OrgAdmin of another org gets 404 on every endpoint), `AdminHttpTests`, `SpendReportTests`, `SchemaGuaranteesTests` (the FK rejects a cross-org site) |
+| **Tenant isolation**, including manipulated IDs | The org comes only from the user's DB record at login → **global query filters** on every tenant table (a foreign ID is a 404; no tenant means no rows) → **SaveChanges guard** (refuses writing another org's rows) → **composite FKs** in the DB | `Persistence/TenantIsolationTests` (real foreign IDs, a smuggled entity), `TenantModelConventionTests` (every entity filtered; `IgnoreQueryFilters` only in login), `Http/RequestAuthorizationHttpTests` (an OrgAdmin of another org gets 404 on every endpoint), `AdminHttpTests`, `SpendReportTests`, `SiteTests` (a site created with another org's ID in the body still lands in the caller's org, and the other org can't see or use it), `SchemaGuaranteesTests` (the FK rejects a cross-org site) |
 | **Authorization, server-side** | Permission policies on every endpoint; resource handler `CanDecide` / `CanModify` (no approving your own request or your own change, OrgAdmin included); DB CHECK as backstop | `Authorization/RequestAuthorizationTests`, `Http/RequestAuthorizationHttpTests` (direct API calls, no UI), `AdminHttpTests` (403 on every admin endpoint) |
 | **Input validation** | .NET 10 minimal-API validation on every body; the domain re-checks invariants (amount > 0, ≤ 10M, 2 dp; lengths; required reasons); malformed JSON → 400, never 500 | `Http/RequestLifecycleHttpTests.Malformed_input_is_a_400_never_a_500`, `SpendReportTests.Invalid_ranges_are_rejected`, `Domain/RevisionLifecycleTests` |
 | **Sessions and passwords** | HttpOnly SameSite=Strict cookie; the user is reloaded every request (deactivation, reset and permission changes take effect immediately); identical 401 for every login failure; per-IP rate limit; **password fields encrypted in the payload** (single-use nonce); HTTPS + HSTS outside Development; strict CSP | `Http/AuthenticationTests`, `EncryptedLoginTests`, `ProductionModeTests`, `StaticClientTests`, `tests/e2e/browser-smoke.js` (no password in any real request body; injected HTML renders as text) |
@@ -161,7 +162,7 @@ Nothing sensitive is committed. The only credentials in the repo are the throwaw
 
 ## Tests: what and why
 
-140 xUnit tests run against **real PostgreSQL**; the EF InMemory provider would skip constraints, triggers and real SQL. Each test creates its own organizations, so no cleanup is needed. **Every suite was checked by planting bugs** and confirming the targeted tests fail (27 planted bugs; see AI-LOG).
+146 xUnit tests run against **real PostgreSQL**; the EF InMemory provider would skip constraints, triggers and real SQL. Each test creates its own organizations, so no cleanup is needed. **Every suite was checked by planting bugs** and confirming the targeted tests fail (29 planted bugs; see AI-LOG).
 
 | Suite | Why these tests |
 |---|---|
@@ -170,6 +171,7 @@ Nothing sensitive is committed. The only credentials in the repo are the throwaw
 | `Persistence/*` | What the **database** must guarantee even if app code is wrong: audit immutability, atomic audit, composite FKs, one pending revision, forced concurrency interleavings, and concurrent migrations on a brand-new database |
 | `Authorization/*`, `Http/RequestAuthorizationHttpTests`, `AdminHttpTests` | Conflict of interest and privilege escalation, attempted the way an attacker would, over HTTP |
 | `Http/SpendReportTests` | "Returns the right numbers": a **hand-computed fixture** with rows on the exact boundary instants, non-completed work, and another org's spend |
+| `Http/SiteTests` | Any member can add a site, but it's **always bound to their org** (an injected org ID is ignored), invisible and unusable to other orgs, unique per org regardless of case (but not across orgs), and audited |
 | `Http/AuthenticationTests`, `EncryptedLoginTests`, `ProductionModeTests` | Enumeration, revocation on the next request, replay, and production-only behaviour the Development suite would never see |
 
 **Not tested, deliberately:** framework behaviour (binding, per-field validation attributes, EF mapping trivia), logging, and the client's markup (covered only by the browser smoke test).

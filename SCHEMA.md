@@ -136,7 +136,7 @@ All FKs are `ON DELETE RESTRICT`. Nothing cascades, so history can't disappear a
 | organizations | `ck_organizations_threshold` | `approval_threshold >= 0` | |
 | users | `ck_users_email_lowercase` | `email = lower(email)` | Makes the plain unique index case-insensitive in effect |
 | users | `ix_users_email` (unique) | global | Login by email without an org code |
-| sites, roles | unique `(organization_id, name)` | per org | |
+| sites, roles | unique `(organization_id, name)` | per org | Two orgs can both have a "Site 12". For **sites**, which any member can add (`POST /api/sites`), the app also refuses a case-insensitive duplicate ("site 12" vs "Site 12") before inserting, and this index is the backstop if two people add the same name at the same moment (→ 409). |
 | maintenance_requests | `ck_requests_estimated_cost` | `estimated_cost > 0` | |
 | maintenance_requests | `ck_requests_actual_cost` | `actual_cost IS NULL OR actual_cost > 0` | |
 | maintenance_requests | `ck_requests_threshold` | `approval_threshold >= 0` | |

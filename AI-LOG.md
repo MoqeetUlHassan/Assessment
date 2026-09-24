@@ -45,7 +45,7 @@ The agent asked one clarifying question rather than guessing: whether "everyone"
 
 ## How I checked the output
 
-- **Planted bugs for every suite** (27 mutations). One survived and exposed the gap above; one survived *as predicted* (an equivalent mutation), kept for index use and proven with `EXPLAIN`.
+- **Planted bugs for every suite** (29 mutations). One survived and exposed the gap above; one survived *as predicted* (an equivalent mutation), kept for index use and proven with `EXPLAIN`.
 - **Ran the real app before writing HTTP tests:** a curl walkthrough found three bugs that 94 green tests missed (a 500 from .NET 10 validation, a false 409 from EF's Guid-key convention, and a 500 on malformed input).
 - **Headless-browser smoke test** (installed Edge): HTML injection renders as text, cross-tenant 404, and no password in any request payload. It found a login race that could put credentials in the URL, and a visible `null` in the header.
 - **Captured EF's real SQL** to confirm the tenant filter sits inside the report's subqueries.

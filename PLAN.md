@@ -1,6 +1,6 @@
 # Plan: Maintenance Request & Approval Backend
 
-Status: **v3.2, implemented.** All steps built. Later additions beyond this plan, made on request: encrypted password fields, HTTPS/HSTS outside Development, and adding sites from the request form (see DECISIONS.md). The schema changes from the step-1 review are applied in §3. Decisions are in §10. Nothing is built yet.
+Status: **v3.2, implemented.** All steps built. Later additions beyond this plan, made on request: encrypted password fields, HTTPS/HSTS outside Development, and adding sites from the request form (see DECISIONS.md). The schema changes from the step-1 review are applied in §3. Decisions are in §10. This file is kept as the agreed design; where later decisions changed it, it's annotated below.
 
 ---
 
@@ -20,7 +20,7 @@ Status: **v3.2, implemented.** All steps built. Later additions beyond this plan
 
 | Not building | Why |
 |---|---|
-| Creating orgs and sites through the API | Out of the brief. Seeded. The facilities company onboards clients; tenants don't create tenants. |
+| Creating orgs and sites through the API | Out of the brief. Seeded. The facilities company onboards clients; tenants don't create tenants. *(Later, on request: any member can **add a site** from the request form, always in their own org. Orgs are still seeded only.)* |
 | Self-registration, invite emails, password reset by email | Users are created by their OrgAdmin (§5). Email flows need infrastructure and don't change the security model being assessed. |
 | Deleting users, roles or requests | They're referenced by the audit history. Users are **deactivated** instead. |
 | Cancellation, attachments, comments, multi-currency | Not required. Each adds states or tables. |
@@ -240,6 +240,7 @@ ActualCost revision:
 | POST | `/api/auth/login` · `/logout` | — | login returns user + org + permissions |
 | GET | `/api/me` | authenticated | user, role, permissions, org, threshold |
 | GET | `/api/sites` | authenticated | |
+| POST | `/api/sites` | authenticated | `{ name }`; added later, see DECISIONS.md |
 | GET | `/api/requests?status=&siteId=&page=` | authenticated | whole org, paged |
 | POST | `/api/requests` | `requests.create` | `{ siteId, description, estimatedCost }` |
 | GET | `/api/requests/{id}` | authenticated | includes current + pending revision |
@@ -358,7 +359,7 @@ Tests run against real Postgres, and each test creates its own orgs.
 2. **Requesters edit and complete only their own requests;** `requests.manage` holders can do it for any request.
 3. **Under the threshold, a description-only edit is auto-approved** (just recorded). At or above it, any description change needs re-approval.
 4. **An OrgAdmin can't approve their own request.** Now confirmed as decision 11.
-5. **Orgs and sites are seeded, with no API.** Each seeded org has an OrgAdmin.
+5. **Orgs and sites are seeded, with no API.** Each seeded org has an OrgAdmin. *(Later: sites can be added by any member via `POST /api/sites`; see DECISIONS.md.)*
 
 ---
 
