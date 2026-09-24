@@ -6,6 +6,7 @@
   App.renderHeader(me);
 
   const sites = (await api('GET', '/api/sites')).data || [];
+  const NEW_SITE = '__new__';
   const filter = document.getElementById('filter');
   const table = document.getElementById('requests');
   const pager = document.getElementById('pager');
@@ -21,9 +22,35 @@
     const message = document.getElementById('create-message');
     section.hidden = false;
     for (const site of sites) form.siteId.append(el('option', { value: site.id, text: site.name }));
+    form.siteId.append(el('option', { value: NEW_SITE, text: '+ Add a new site…' }));
+
+    // Adding a site: any member of the organization can; the server puts it in the caller's organization.
+    const newSite = document.getElementById('new-site');
+    const newSiteName = form.newSiteName;
+    const showNewSite = on => {
+      newSite.hidden = !on;
+      if (on) newSiteName.focus();
+      else if (form.siteId.value === NEW_SITE) form.siteId.selectedIndex = 0;
+    };
+    form.siteId.addEventListener('change', () => showNewSite(form.siteId.value === NEW_SITE));
+    document.getElementById('cancel-site').addEventListener('click', () => showNewSite(false));
+    if (sites.length === 0) showNewSite(true); // a new organization: the only option is adding a site
+    document.getElementById('add-site').addEventListener('click', async () => {
+      const result = await api('POST', '/api/sites', { name: newSiteName.value });
+      if (!result.ok) { showMessage(message, problemText(result)); return; }
+      const created = result.data;
+      // Insert before the "+ Add a new site…" entry, select it, and offer it in the list filter too.
+      form.siteId.insertBefore(el('option', { value: created.id, text: created.name }), form.siteId.lastElementChild);
+      form.siteId.value = created.id;
+      filter.siteId.append(el('option', { value: created.id, text: created.name }));
+      newSiteName.value = '';
+      newSite.hidden = true;
+      showMessage(message, `Site "${created.name}" added.`, false);
+    });
 
     form.addEventListener('submit', async event => {
       event.preventDefault();
+      if (form.siteId.value === NEW_SITE) { showMessage(message, 'Add the new site first, or pick an existing one.'); return; }
       const result = await api('POST', '/api/requests', {
         siteId: form.siteId.value,
         description: form.description.value,

@@ -15,6 +15,11 @@
       <h2>New request</h2>
       <form id="create" class="stack">
         <label>Site <select name="siteId" required></select></label>
+        <div id="new-site" class="inline" hidden>
+          <label>New site name <input name="newSiteName" maxlength="200"></label>
+          <button type="button" id="add-site">Add site</button>
+          <button type="button" id="cancel-site">Cancel</button>
+        </div>
         <label>Description <textarea name="description" required maxlength="2000"></textarea></label>
         <label>Estimated cost <input name="estimatedCost" type="number" min="0.01" max="10000000" step="0.01" required></label>
         <button type="submit">Raise request</button>

@@ -57,5 +57,6 @@ public static class AuditActions
     public const string UserReactivated = "UserReactivated";
     public const string PasswordReset = "PasswordReset";
     public const string RoleCreated = "RoleCreated";
+    public const string SiteCreated = "SiteCreated";
     public const string RolePermissionsChanged = "RolePermissionsChanged";
 }
