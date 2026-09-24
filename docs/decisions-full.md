@@ -104,7 +104,7 @@ Integration tests run against **real Postgres** via `WebApplicationFactory`, and
 
 ## Assumptions (ambiguities resolved)
 
-- **"Clean machine"** = the .NET 10 SDK, plus Docker **or** Postgres. `dotnet-ef` is a local tool.
+- **"Clean machine"** = the .NET 10 SDK plus a **local PostgreSQL**, which is the setup the project was built, tested and timed on. Docker Compose is offered as an optional alternative but has not been run. `dotnet-ef` is a local tool.
 - **Dev credentials** (`postgres/postgres`) in `appsettings.Development.json` are fine for a throwaway local DB. Real secrets go in user-secrets or env vars. In production: a secret manager.
 - **The run instructions use the HTTP launch profile,** so there's no dev-cert trust step.
 - **One currency per org.** Report dates are inclusive and UTC.

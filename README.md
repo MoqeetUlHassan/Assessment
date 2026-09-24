@@ -24,18 +24,16 @@ ASP.NET Core (.NET 10) · EF Core · PostgreSQL · vanilla JS client.
 | Tool | Version | Check |
 |---|---|---|
 | .NET SDK | any .NET 10 SDK, 10.0.100 or later (`global.json` rolls forward to the newest installed) | `dotnet --list-sdks` |
-| PostgreSQL | 14+, **either** Docker **or** a local install | `docker --version` / `psql --version` |
+| PostgreSQL | 14+, a **local install** (developed and tested on PostgreSQL 16), running on `localhost:5432` | `psql --version` |
 | Node.js *(optional)* | 18+, only for command-line login (`scripts/login.mjs`) and the browser smoke test | `node --version` |
 
 ## Run it
 
+1. **Make sure your local PostgreSQL is running** on `localhost:5432`. The app expects user `postgres`, password `postgres`. If yours differ, set your own connection string first (see [Configuration](#configuration)); nothing needs editing in the repo.
+2. **Clone and run.** You don't need to create the database: in Development the app creates it, applies migrations and seeds demo data on first start.
+
 ```bash
 git clone https://github.com/MoqeetUlHassan/Assessment.git && cd Assessment
-
-# 1. Start Postgres (skip if you already have one on localhost:5432 with user/password postgres/postgres)
-docker compose up -d db
-
-# 2. Run the app. In Development it creates the database, applies migrations and seeds demo data on startup.
 dotnet run --project src/Assessment.Api --launch-profile http
 ```
 
@@ -53,9 +51,9 @@ Other endpoints: `curl http://localhost:5183/health` (→ `Healthy`), and the Op
 - **first successful login at 52 s**;
 - the full test suite on another brand-new database: all green (re-checked on a brand-new database after the latest change: **146/146**).
 
-On a truly clean machine, add the .NET 10 SDK install (about 3–5 minutes), for **well under 10 minutes in total**.
+On a truly clean machine, add the .NET 10 SDK and PostgreSQL installs (a few minutes each), for **well under 15 minutes in total**.
 
-The Docker Compose path hasn't been exercised: the author's machine has no Docker and uses a local Postgres 16. It's a stock `postgres:16-alpine` service with the same credentials as `appsettings.Development.json`.
+**No local PostgreSQL? Optional Docker alternative (untested).** `docker compose up -d db` starts a stock `postgres:16-alpine` with the same credentials the app expects, and then `dotnet run` works as above. It's provided for convenience only: this project was built and tested against a local PostgreSQL 16, and the Docker route has not been run.
 
 ### Seeded accounts (Development only)
 
@@ -193,7 +191,7 @@ cd tests/e2e && npm install && node browser-smoke.js            # terminal 2
 
 ## Configuration
 
-**Using your own Postgres instead of Docker.** The default connection string (`appsettings.Development.json`) is `Host=localhost;Port=5432;Database=assessment;Username=postgres;Password=postgres`. If yours differs, override it without editing files:
+**Database connection.** The default connection string (`appsettings.Development.json`) is `Host=localhost;Port=5432;Database=assessment;Username=postgres;Password=postgres`. If yours differs, override it without editing files:
 
 ```bash
 dotnet user-secrets --project src/Assessment.Api set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=assessment;Username=me;Password=secret"

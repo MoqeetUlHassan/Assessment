@@ -39,7 +39,7 @@ An OrgAdmin can raise the threshold and then raise an auto-approved request, or 
 
 ## Assumptions made
 
-- "Clean machine" = the .NET 10 SDK plus Docker **or** Postgres. Node is only needed for the CLI login and browser test.
+- "Clean machine" = the .NET 10 SDK plus a **local PostgreSQL** (the tested setup; Docker Compose is an optional, untested alternative). Node is only needed for the CLI login and browser test.
 - Equal to the threshold needs approval. One currency per org. Report dates are UTC.
 - Emails are globally unique, so login needs no org code; an admin can learn an email exists elsewhere (low severity).
 - Requesters edit and complete their own requests; `requests.manage` covers any request. Below the threshold, a description-only edit is auto-approved.
