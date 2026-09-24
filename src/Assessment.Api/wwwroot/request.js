@@ -19,9 +19,10 @@
   }
 
   // Every action posts to the API, then re-renders from the server's answer (the source of truth).
+  // The success message comes AFTER the reload, so it never sits above stale data.
   async function act(method, path, body, done) {
     const result = await api(method, path, body);
-    if (result.ok) { showMessage(message, done, false); await load(); }
+    if (result.ok) { await load(); showMessage(message, done, false); }
     else showMessage(message, problemText(result));
   }
 

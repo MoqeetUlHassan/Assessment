@@ -13,7 +13,7 @@
   // Each admin action: call the API, report, reload everything from the server.
   async function act(method, path, body, done) {
     const result = await api(method, path, body);
-    if (result.ok) { showMessage(message, done, false); await loadAll(); }
+    if (result.ok) { await loadAll(); showMessage(message, done, false); } // message after the reload, never over stale data
     else showMessage(message, problemText(result));
     return result.ok;
   }
