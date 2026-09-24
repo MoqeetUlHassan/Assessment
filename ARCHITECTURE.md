@@ -68,7 +68,7 @@ src/Assessment.Api/
 ├── Features/
 │   ├── Auth/        ✅ password-challenge · login (encrypted password) · logout · me
 │   ├── Requests/    ✅ create · list · get · edit · complete · approve · reject · history
-│   ├── Sites/       ✅ list
+│   ├── Sites/       ✅ list · add (any member; always in the caller's org)
 │   ├── Admin/       ✅ users · roles · permissions · threshold · org audit log
 │   └── Reports/     ✅ spend by site
 └── wwwroot/                          ✅ static client (login, list, create, detail + decide/edit/complete, audit, spend report, admin panel)

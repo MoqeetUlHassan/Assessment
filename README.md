@@ -40,7 +40,7 @@ dotnet run --project src/Assessment.Api --launch-profile http
 ```
 
 Open **http://localhost:5183** and sign in with a seeded account (below).
-- **Everyone:** the request list (filter, paging), raising a request, and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail.
+- **Everyone:** the request list (filter, paging), raising a request (pick **+ Add a new site…** in the Site list to add one), and a detail page with approve/reject, edit, record the actual cost, revisions and the audit trail.
 - **Approvers and admins:** also **Spend report**.
 - **`admin@acme.test`:** also **Admin**: threshold, users, roles and permissions, and the organization audit log.
 
@@ -106,6 +106,7 @@ curl -s -b req.jar $B/api/requests/<id>/history                   # who did what
 | POST | `/api/auth/login` · `/api/auth/logout` | — | login body `{ email, keyId, encryptedPassword }`; rate-limited per IP |
 | GET | `/api/me` | session | user, role, permissions, org, threshold |
 | GET | `/api/sites` | session | your org's sites |
+| POST | `/api/sites` | session (any member) | `{ name }`; always created in **your** organization; unique per org (case-insensitive); audited |
 | GET | `/api/requests?status=&siteId=&page=&pageSize=` | session | whole org, newest first, paged (≤ 100) |
 | POST | `/api/requests` | `requests.create` | `{ siteId, description, estimatedCost }` |
 | GET | `/api/requests/{id}` | session | includes revisions and the `actions` the caller may take |

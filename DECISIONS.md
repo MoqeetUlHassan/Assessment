@@ -27,7 +27,7 @@ One page. The full table, with every alternative and trade-off, is in [docs/deci
 
 ## Deliberately not built
 
-- **Self-registration, and org/site management APIs.** Tenants don't create tenants; seeded.
+- **Self-registration and organization management.** Tenants don't create tenants; seeded. Any member can **add** a site (it always lands in their own org); renaming and deleting sites aren't built, because requests reference them.
 - **Deleting users, roles or requests.** The audit history references them; users are deactivated.
 - **A "last active OrgAdmin" guard.** It can never trigger: only OrgAdmins manage users, and they can't deactivate or demote themselves.
 - **Request cancellation, attachments, comments.** Not required; each adds states.
