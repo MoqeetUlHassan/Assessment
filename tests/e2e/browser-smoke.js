@@ -60,6 +60,15 @@ async function session(browser, email) {
     check('header shows org, threshold, user', header.includes('Acme Retail') && header.includes('Riley Requester'), header.replace(/\s+/g, ' ').trim());
     check('header renders no stray "null"', !header.includes('null'));
 
+    // Add a new site from the request form's dropdown; it comes back selected.
+    const newSiteName = `Smoke Site ${Date.now()}`;
+    await requester.page.selectOption('#create select[name=siteId]', { label: '+ Add a new site…' });
+    await requester.page.fill('#create input[name=newSiteName]', newSiteName);
+    await requester.page.click('#add-site');
+    await requester.page.waitForSelector('#create-message p.ok');
+    const selectedSite = await requester.page.$eval('#create select[name=siteId]', s => s.options[s.selectedIndex].text);
+    check('sites: a requester can add a site from the request form and it is selected', selectedSite === newSiteName, selectedSite);
+
     // Create an over-threshold request whose description is an HTML/script injection attempt.
     await requester.page.selectOption('#create select[name=siteId]', { label: 'Site 12' });
     await requester.page.fill('#create textarea[name=description]', XSS);
