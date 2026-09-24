@@ -49,7 +49,7 @@ Other endpoints: `curl http://localhost:5183/health` (→ `Healthy`), and the Op
 - restore and build: 44 s;
 - first start, including migrations and seeding: healthy at **51 s**;
 - **first successful login at 52 s**;
-- the full test suite on another brand-new database: all green (re-checked on a brand-new database after the latest change: **146/146**).
+- the full test suite on another brand-new database: **all passing** (146/146 at the latest re-check).
 
 On a truly clean machine, add the .NET 10 SDK and PostgreSQL installs (a few minutes each), for **well under 15 minutes in total**.
 
@@ -131,9 +131,9 @@ Errors are `application/problem+json`:
 |---|---|
 | 400 | Invalid or malformed input, or an invalid/expired password challenge |
 | 401 | No session |
-| 403 | Missing permission, or your own request / revision |
+| 403 | Missing permission, or your own request / revision. The title says which (e.g. *"Your role doesn't have the requests.approve permission."*) |
 | 404 | Doesn't exist, **or belongs to another organization** (indistinguishable) |
-| 409 | Illegal transition, a stale `revisionId`, a duplicate email, or a concurrent change |
+| 409 | Illegal transition, a stale `revisionId`, a duplicate email / site name / role name, or a concurrent change |
 | 429 | Too many login attempts or challenges from one IP |
 
 ## Security: where it's enforced and how it's verified
@@ -141,7 +141,7 @@ Errors are `application/problem+json`:
 | Requirement | Enforced at | Proven by |
 |---|---|---|
 | **Tenant isolation**, including manipulated IDs | The org comes only from the user's DB record at login → **global query filters** on every tenant table (a foreign ID is a 404; no tenant means no rows) → **SaveChanges guard** (refuses writing another org's rows) → **composite FKs** in the DB | `Persistence/TenantIsolationTests` (real foreign IDs, a smuggled entity), `TenantModelConventionTests` (every entity filtered; `IgnoreQueryFilters` only in login), `Http/RequestAuthorizationHttpTests` (an OrgAdmin of another org gets 404 on every endpoint), `AdminHttpTests`, `SpendReportTests`, `SiteTests` (a site created with another org's ID in the body still lands in the caller's org, and the other org can't see or use it), `SchemaGuaranteesTests` (the FK rejects a cross-org site) |
-| **Authorization, server-side** | Permission policies on every endpoint; resource handler `CanDecide` / `CanModify` (no approving your own request or your own change, OrgAdmin included); DB CHECK as backstop | `Authorization/RequestAuthorizationTests`, `Http/RequestAuthorizationHttpTests` (direct API calls, no UI), `AdminHttpTests` (403 on every admin endpoint) |
+| **Authorization, server-side** | Permission policies on every endpoint; resource handler `CanDecide` / `CanModify` (no approving your own request or your own change, OrgAdmin included); DB CHECK as backstop. Each rule returns *why* it refuses, so the UI and every 403 name the real reason | `Authorization/RequestAuthorizationTests`, `Http/RequestAuthorizationHttpTests` (direct API calls, no UI; 403 titles), `AdminHttpTests` (403 on every admin endpoint) |
 | **Input validation** | .NET 10 minimal-API validation on every body; the domain re-checks invariants (amount > 0, ≤ 10M, 2 dp; lengths; required reasons); malformed JSON → 400, never 500 | `Http/RequestLifecycleHttpTests.Malformed_input_is_a_400_never_a_500`, `SpendReportTests.Invalid_ranges_are_rejected`, `Domain/RevisionLifecycleTests` |
 | **Sessions and passwords** | HttpOnly SameSite=Strict cookie; the user is reloaded every request (deactivation, reset and permission changes take effect immediately); identical 401 for every login failure; per-IP rate limit; **password fields encrypted in the payload** (single-use nonce); HTTPS + HSTS outside Development; strict CSP | `Http/AuthenticationTests`, `EncryptedLoginTests`, `ProductionModeTests`, `StaticClientTests`, `tests/e2e/browser-smoke.js` (no password in any real request body; injected HTML renders as text) |
 | **Audit integrity** | Written in the **same transaction** as the change, by the domain; **DB trigger rejects UPDATE/DELETE/TRUNCATE**; the app guard refuses changes even in system scope | `Persistence/SchemaGuaranteesTests` (raw SQL tampering fails; a failed save leaves no audit row), `TenantIsolationTests`, `Domain/AuditTrailTests` (replaying the trail reproduces the status), `AdminHttpTests` (every admin action attributed, no passwords in details) |
@@ -180,9 +180,9 @@ TEST_CONNECTION_STRING="Host=...;Database=...;Username=...;Password=..." dotnet 
 ```
 
 **Browser smoke test (optional).** `tests/e2e/browser-smoke.js` drives the real UI in a headless browser against a **running** app, using an installed Edge (or Chrome with `BROWSER_CHANNEL=chrome`). It isn't part of `dotnet test`.
-- It covers login, an HTML-injection description, approve/reject, completion, the audit trail, the spend report, the admin panel, a cross-tenant 404, logout, no password in any request body, and no JS or CSP errors.
+- It covers login, adding a site from the request form, an HTML-injection description, editing with a reason, approve/reject with the decision note shown, completion, the audit trail, the spend report, the admin panel, a cross-tenant 404, logout, no password in any request body, and no JS or CSP errors.
 - It signs in about 8 times against a rate limit of 10 per minute per IP, so allow a minute between runs.
-- It uses your dev database: it restores the threshold it changes, but leaves a test user and some audit rows behind.
+- It uses your dev database: it restores the threshold it changes, but leaves behind a test user, a test site, a few requests and their audit rows.
 
 ```bash
 dotnet run --project src/Assessment.Api --launch-profile http   # terminal 1
@@ -191,7 +191,7 @@ cd tests/e2e && npm install && node browser-smoke.js            # terminal 2
 
 ## Configuration
 
-**Database connection.** The default connection string (`appsettings.Development.json`) is `Host=localhost;Port=5432;Database=assessment;Username=postgres;Password=postgres`. If yours differs, override it without editing files:
+**Database connection.** The default connection string (`appsettings.Development.json`) is `Host=localhost;Port=5432;Database=assessment;Username=postgres;Password=postgres`. If yours differs, override it without editing any file in the repo. User-secrets are stored in your user profile, and no `init` step is needed:
 
 ```bash
 dotnet user-secrets --project src/Assessment.Api set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=assessment;Username=me;Password=secret"
@@ -200,7 +200,7 @@ export ConnectionStrings__Default="Host=...;Username=me;Password=secret"     # b
 $env:ConnectionStrings__Default="Host=...;Username=me;Password=secret"       # PowerShell
 ```
 
-Is port 5432 taken by a local Postgres, but you still want the Docker one? Run `POSTGRES_PORT=5433 docker compose up -d db` and use `Port=5433`.
+*(Optional Docker route only)* If port 5432 is already taken by a local Postgres, run `POSTGRES_PORT=5433 docker compose up -d db` and use `Port=5433`.
 
 **Running outside Development.** Set `ASPNETCORE_ENVIRONMENT=Production` (or any non-Development value), plus:
 - `ConnectionStrings__Default` and `LoginEncryption__PrivateKeyPem` (an RSA key of ≥ 3072 bits in PEM format), from a secret manager.
@@ -228,16 +228,16 @@ tests/Assessment.Api.Tests/  Domain · Persistence · Authorization · Http
 tests/e2e/                 headless-browser smoke test
 scripts/login.mjs          command-line login for curl users
 docs/                      full decisions and AI-log records
-docker-compose.yml         Postgres 16 for reviewers without a local install
+docker-compose.yml         optional Postgres 16 for machines without a local install (untested)
 ```
 
 ## Troubleshooting
 
-- **`fail: ... An error occurred using the connection to database 'assessment'` on first start.** Expected: EF Core checks whether the database exists before creating it. If `/health` returns `Healthy`, nothing is wrong.
+- **`fail: ... An error occurred using the connection to database '...'` on first start.** Expected: EF Core checks whether the database exists before creating it (re-checked against an empty database). If `/health` returns `Healthy`, nothing is wrong.
 - **`password authentication failed for user "postgres"`.** Your local Postgres uses different credentials; override the connection string as shown above.
 - **`Connection string 'ConnectionStrings:Default' is missing`.** You're running outside Development; use `--launch-profile http` or set the connection string.
 - **Login says "Password encryption needs a secure page".** Browsers only allow Web Crypto on HTTPS or `localhost`. Open `http://localhost:5183`, not a LAN IP.
 - **Login says "The login challenge is invalid or has expired".** The app restarted (a new in-memory key) or the page sat for over 2 minutes. Reload and sign in again.
 - **`429 Too Many Requests` on login.** That's the per-IP login rate limit (10 per minute). Wait a minute.
-- **A fresh database has no demo requests.** Seeding runs once per database. To start clean, drop the `assessment` database and restart the app.
+- **The demo data doesn't include something newer** (e.g. the demo requests). Seeding runs only once per database, so an already-seeded database keeps what it had. To start clean, drop the `assessment` database and restart the app; it's recreated and re-seeded.
 - **`dotnet test` fails to build with "file is locked by Assessment.Api".** Stop the running app first; on Windows it locks the build output.
